@@ -1,6 +1,16 @@
 #!/usr/bin/env python\n
 # -*- coding: utf-8 -*-
 
+# pylint: disable=W0142
+# W0142="* or ** magic"
+"""
+
+Main module for Mediawikier package.
+
+"""
+
+
+from __future__ import print_function
 import sys
 from os.path import splitext, basename, dirname, join
 import imp
@@ -73,11 +83,13 @@ TEMPLATE_NAMESPACE = 10  # template namespace number
 
 
 def mw_get_setting(key, default_value=None):
+    """ Returns setting for key <key>, defaulting to default_value if not present (default: None) """
     settings = sublime.load_settings('Mediawiker.sublime-settings')
     return settings.get(key, default_value)
 
 
 def mw_set_setting(key, value):
+    """ Set setting for key <key>, to value <value>. """
     settings = sublime.load_settings('Mediawiker.sublime-settings')
     settings.set(key, value)
     sublime.save_settings('Mediawiker.sublime-settings')
@@ -97,17 +109,22 @@ def mw_deco(value):
     return value
 
 
-def mw_dict_val(dictobj, key, default_value=None):
-    try:
-        return dictobj[key]
-    except KeyError:
-        if default_value is None:
-            return ''
-        else:
-            return default_value
+# If a function can be written as a short one-liner, then the mantra "explicit over implicit" kicks in:
+# In this case, replace
+# mw_dict_val(dictobj, key[, default_value]) with
+# dictobj.get(key, '' or default_value)  -- it's even shorter!
+#def mw_dict_val(dictobj, key, default_value=None):
+#    try:
+#        return dictobj[key]
+#    except KeyError:
+#        if default_value is None:
+#            return ''
+#        else:
+#            return default_value
 
 
 def mw_get_digest_header(header, username, password, path):
+    """ Return an auth header for use in the "Digest" authorization realm. """
     HEADER_ATTR_PATTERN = r'([\w\s]+)=\"?([^".]*)\"?'
     METHOD = "POST"
     header_attrs = {}
@@ -121,9 +138,9 @@ def mw_get_digest_header(header, username, password, path):
     nc = '00000001'
     realm = header_attrs['Digest realm']
     nonce = header_attrs['nonce']
-    qop = header_attrs['qop'] if 'qop' in header_attrs else 'auth'
-    digest_uri = header_attrs['uri'] if 'uri' in header_attrs else path
-    algorithm = header_attrs['algorithm'] if 'algorithm' in header_attrs else 'MD5'
+    qop = header_attrs.get('qop', 'auth')
+    digest_uri = header_attrs.get('uri', path)
+    algorithm = header_attrs.get('algorithm', 'MD5')
     # TODO: ?
     # opaque = header_attrs['opaque'] if 'opaque' in header_attrs else ''
     entity_body = ''  # TODO: ?
@@ -149,6 +166,7 @@ def mw_get_digest_header(header, username, password, path):
 
 
 def mw_get_connect(password=''):
+    """ Returns a mwclient connection to the active MediaWiki site. """
     DIGEST_REALM = 'Digest realm'
     BASIC_REALM = 'Basic realm'
     site_name_active = mw_get_setting('mediawiki_site_active')
@@ -172,12 +190,20 @@ def mw_get_connect(password=''):
         sublime.message_dialog('Connection with proxy: %s %s' % (addr, path))
 
     try:
+        # It would be nice to be able to pass in old cookies, but that is not part of the original design.
+        # we have:
+        # <Site>sitecon . <HTTPPool> connection [list of ((scheme, hostname), <HTTP(S)PersistentConnection> connection) tuples]
+        # <HTTP(S)PersistentConnection> connection._conn = <httplib.HTTP(S)Connection>
+        # connection.cookies is a dict[host] = <CookieJar> , either individual or shared pool (if pool is provided to connection init)
+        # CookieJar is a subclass of dict and can 
+        # connection.post(<host>, ...) finds the host in the connection pool,
+
         sitecon = mwclient.Site(host=addr, path=path)
     except mwclient.HTTPStatusError as exc:
         e = exc.args if pythonver >= 3 else exc
-        is_use_http_auth = mw_dict_val(site_list[site_name_active], 'use_http_auth', False)
-        http_auth_login = mw_dict_val(site_list[site_name_active], 'http_auth_login')
-        http_auth_password = mw_dict_val(site_list[site_name_active], 'http_auth_password')
+        is_use_http_auth = site_list[site_name_active].get('use_http_auth', False)
+        http_auth_login = site_list[site_name_active].get('http_auth_login', '')
+        http_auth_password = site_list[site_name_active].get('http_auth_password', '')
 
         if e[0] == 401 and is_use_http_auth and http_auth_login:
             http_auth_header = e[1].getheader('www-authenticate')
@@ -323,6 +349,7 @@ def mw_get_category(category_full_name):
 
 
 def mw_get_page_url(page_name=''):
+    """ Returns URL of page with title of the active document, or <page_name> if given. """
     site_name_active = mw_get_setting('mediawiki_site_active')
     site_list = mw_get_setting('mediawiki_site')
     site = site_list[site_name_active]["host"]
@@ -473,7 +500,7 @@ class MediawikerPageListCommand(sublime_plugin.WindowCommand):
     def run(self, storage_name='mediawiker_pagelist'):
         site_name_active = mw_get_setting('mediawiki_site_active')
         mediawiker_pagelist = mw_get_setting(storage_name, {})
-        self.my_pages = mediawiker_pagelist[site_name_active] if site_name_active in mediawiker_pagelist else []
+        self.my_pages = mediawiker_pagelist.get(site_name_active, [])
         if self.my_pages:
             self.my_pages.reverse()
             #error 'Quick panel unavailable' fix with timeout..
