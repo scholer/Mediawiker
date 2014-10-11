@@ -171,16 +171,24 @@ def mw_get_connect(password=''):
     BASIC_REALM = 'Basic realm'
     site_name_active = mw_get_setting('mediawiki_site_active')
     site_list = mw_get_setting('mediawiki_site')
+    params = site_list[site_name_active]
     site = site_list[site_name_active]['host']
     path = site_list[site_name_active]['path']
     username = site_list[site_name_active]['username']
     domain = site_list[site_name_active]['domain']
+    custom_cookies = params.get('cookies')
+
     proxy_host = ''
     if 'proxy_host' in site_list[site_name_active]:
         proxy_host = site_list[site_name_active]['proxy_host']
+    # Uh, what the fuck...?
     is_https = True if 'https' in site_list[site_name_active] and site_list[site_name_active]['https'] else False
+    # Why not just:
+    is_https = params.get('https')
     if is_https:
         sublime.status_message('Trying to get https connection to https://%s' % site)
+    # And what the fuck is up with 'site', 'addr' and 'host', all different name for the exact same (ambiguous) thing,
+    # which is either (<scheme>, <hostname>) or just <hostname>.
     addr = site if not is_https else ('https', site)
     if proxy_host:
         # proxy_host format is host:port, if only host defined, 80 will be used
@@ -195,10 +203,10 @@ def mw_get_connect(password=''):
         # <Site>sitecon . <HTTPPool> connection [list of ((scheme, hostname), <HTTP(S)PersistentConnection> connection) tuples]
         # <HTTP(S)PersistentConnection> connection._conn = <httplib.HTTP(S)Connection>
         # connection.cookies is a dict[host] = <CookieJar> , either individual or shared pool (if pool is provided to connection init)
-        # CookieJar is a subclass of dict and can 
+        # Note: For cookies[host], host is hostname string e.g. "lab.wyss.harvard.edu"; not ('https', 'harvard.edu') tuple.
+        # CookieJar is a subclass of dict. I've changed it's __init__ so you can initialize it as a dict.
         # connection.post(<host>, ...) finds the host in the connection pool,
-
-        sitecon = mwclient.Site(host=addr, path=path)
+        sitecon = mwclient.Site(host=addr, path=path, custom_cookies=custom_cookies)
     except mwclient.HTTPStatusError as exc:
         e = exc.args if pythonver >= 3 else exc
         is_use_http_auth = site_list[site_name_active].get('use_http_auth', False)

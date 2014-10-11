@@ -62,9 +62,9 @@ class Site(object):
     api_limit = 500
 
     def __init__(self, host, path='/w/', ext='.php', pool=None, retry_timeout=30, max_retries=25, wait_callback=lambda *x: None,
-                 max_lag=3, compress=True, force_login=True, do_init=True, custom_headers=None):
+                 max_lag=3, compress=True, force_login=True, do_init=True, custom_headers=None, custom_cookies=None):
         # Setup member variables
-        self.host = host
+        self.host = host    # host is here a two-tuple of strings: (<scheme>, <hostname>), but can also be just <hostname> if https is not specified!
         self.path = path
         self.ext = ext
         self.credentials = None
@@ -96,6 +96,16 @@ class Site(object):
             self.connection = httpmw.HTTPPool()
         else:
             self.connection = pool
+
+        if custom_cookies:
+            # Not sure if this should be host as a (scheme, hostname) tuple or just host as a string:
+            # Here, only the hostname is used, not the scheme:
+            # I guess it can be both...
+            if isinstance(host, tuple):
+                scheme, hostname = host
+            else:
+                hostname = host
+            self.connection.cookies[hostname] = httpmw.CookieJar(custom_cookies)
 
         # Page generators
         self.pages = listing.PageList(self)

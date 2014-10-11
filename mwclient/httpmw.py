@@ -1,23 +1,24 @@
 #!/usr/bin/env python\n
 # -*- coding: utf-8 -*-
 
-FOR_MEDIAWIKER = True
 
+from __future__ import print_function
+FOR_MEDIAWIKER = True
 import sys
 pythonver = sys.version_info[0]
 
 
 if pythonver >= 3:
-    import urllib.request as urllib_compat  # , urllib.error
-    import urllib.parse as urlparse_compat
-    import http.client as http_compat
+    import urllib.request as urllib_compat  # , urllib.error    # pylint: disable=F0401,E0611
+    import urllib.parse as urlparse_compat                      # pylint: disable=F0401,E0611
+    import http.client as http_compat                           # pylint: disable=F0401
 
     if FOR_MEDIAWIKER and sys.platform.startswith('linux'):
         # for mediawiker's ssl under linux under sublime 3
         # ssl was loaded from mediawiker
         # under sublime 3 needs to reload ssl required modules
-        from imp import reload
-        reload(http_compat)
+        import imp      # I don't want to overwrite builtin reload()
+        imp.reload(http_compat)
         print('Mediawiker: http_compat reloaded.')
 
 else:
@@ -47,8 +48,8 @@ class Request(urllib_compat.Request):
 
 
 class CookieJar(dict):
-    def __init__(self):
-        dict.__init__(self, ())
+    def __init__(self, *args, **kwargs):
+        dict.__init__(self, *args, **kwargs)
 
     def extract_cookies(self, response):
         if pythonver >= 3:
@@ -112,13 +113,22 @@ class HTTPPersistentConnection(object):
     def __init__(self, host, pool=None):
         self.cookies = {}
         self.pool = pool
-        if pool:
+        # Checking with "if pool:" gives unexpected result if pool is given but empty. Using "if pool is None:" instead.
+        if pool is not None:
+            print("DEBUG: Using existing pool's dict of cookiejars:")
             self.cookies = pool.cookies
+        print("DEBUG: pool=%s, bool(pool)=%s" % (pool, bool(pool)))
+        print("DEBUG: self.pool=%s, self.cookies=%s" % (pool, self.cookies))
         self._conn = self.http_class(host)
         self._conn.connect()
         self.last_request = time.time()
 
     def request(self, method, host, path, headers, data, raise_on_not_ok=True, auto_redirect=True):
+        """
+        Note that cookies are sent as a header item.
+        Assuming you have your cookies as a dict, you can do:
+            headers['Cookie'] = ";".join("{}={}".format(k, v) for k, v in cookies.items())
+        """
 
         # Strip scheme
         if type(host) is tuple:
@@ -145,6 +155,8 @@ class HTTPPersistentConnection(object):
 
         if _headers:
             headers.update(_headers)
+        print("DEBUG: self=%s, headers=%s, data='%s', host='%s', path='%s'" % (self, headers, data, host, path))
+        print("DEBUG: self.cookies=%s" % self.cookies)
 
         try:
             self._conn.request(method, path, headers=headers)
@@ -179,6 +191,8 @@ class HTTPPersistentConnection(object):
             self.cookies[host] = CookieJar()
         self.cookies[host].extract_cookies(res)
 
+        print("DEBUG: res=%s, res.status=%s, res.__dict__=%s" % (res, res.status, res.__dict__))
+
         if res.status >= 300 and res.status <= 399 and auto_redirect:
             res.read()
 
@@ -196,7 +210,10 @@ class HTTPPersistentConnection(object):
                 path = path + '?' + location[4]
 
             if location[0].lower() != self.scheme_name:
-                raise errors.HTTPRedirectError('Only HTTP connections are supported', res.getheader('Location'))
+                # This is not a right error message when redirect is not a fully-qualified url, but is e.g. '/login.php?modauthopenid.referrer=http%3A%2F%2Flab.wyss.harvard.edu%2F104%2Fapi.php%3F'
+                # In this case, location[0] is simply ''.
+                raise errors.HTTPRedirectError('Only HTTP connections are supported' + "self.scheme_name='%s', location[0]='%s', location=%s" % (self.scheme_name, location[0], location), res.getheader('Location'))
+                #raise errors.HTTPRedirectError('Only HTTP connections are supported', res.getheader('Location'))
 
             if self.pool is None:
                 if location[1] != host:
@@ -258,6 +275,14 @@ class HTTPSPersistentConnection(HTTPPersistentConnection):
 
 
 class HTTPPool(list):
+    """
+    List-like class for storing http connections.
+    Each element is expected to be a two-tuple of:
+        ([<list of hosts>], connection)
+    Each element in [<list of hosts>] is two-tuple:
+        (scheme, host)
+    where scheme is either 'http' or 'https', and
+    """
 
     def __init__(self):
         list.__init__(self)
@@ -309,4 +334,3 @@ class HTTPPool(list):
     def close(self):
         for hosts, conn in self:
             conn.close()
-
