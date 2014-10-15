@@ -115,10 +115,10 @@ class HTTPPersistentConnection(object):
         self.pool = pool
         # Checking with "if pool:" gives unexpected result if pool is given but empty. Using "if pool is None:" instead.
         if pool is not None:
-            print("DEBUG: Using existing pool's dict of cookiejars:")
+            #print("DEBUG: Using existing pool's dict of cookiejars:")
             self.cookies = pool.cookies
-        print("DEBUG: pool=%s, bool(pool)=%s" % (pool, bool(pool)))
-        print("DEBUG: self.pool=%s, self.cookies=%s" % (pool, self.cookies))
+        #print("DEBUG: pool=%s, bool(pool)=%s" % (pool, bool(pool)))
+        #print("DEBUG: self.pool=%s, self.cookies=%s" % (pool, self.cookies))
         self._conn = self.http_class(host)
         self._conn.connect()
         self.last_request = time.time()
@@ -155,7 +155,7 @@ class HTTPPersistentConnection(object):
 
         if _headers:
             headers.update(_headers)
-        print("DEBUG: self=%s, headers=%s, data='%s', host='%s', path='%s'" % (self, headers, data, host, path))
+        #print("DEBUG: self=%s, headers=%s, data='%s', host='%s', path='%s'" % (self, headers, data, host, path))
         print("DEBUG: self.cookies=%s" % self.cookies)
 
         try:

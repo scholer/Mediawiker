@@ -61,7 +61,10 @@
         {"caption": "Numbered list", "type": "snippet", "value": "Packages/Mediawiker/snippets/mw_lio.sublime-snippet"},
         {"caption": "Strike", "type": "snippet", "value": "Packages/Mediawiker/snippets/mw_strike.sublime-snippet"},
         {"caption": "Predefined text", "type": "snippet", "value": "Packages/Mediawiker/snippets/mw_pre.sublime-snippet"}
-    ]
+    ],
+    "mediawiker_file_rootdir": null,
+    "mediawiker_use_subdirs": false,
+    "mediawiker_title_to_filename": true
 
 }
 

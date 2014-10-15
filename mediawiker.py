@@ -1,17 +1,45 @@
-#!/usr/bin/env python\n
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# pylint: disable=W0142
+# pylint: disable=W0142,C0302
 # W0142="* or ** magic"
+# C0302="Too many lines in module"
+# pylint: disable=R0914,R0912,R0915
+# Too many branches, variables and lines in function
+# pylint: disable=W0511,C0111
+## ToDos, missing docstrings,
+# pylint: disable=W0611
+## Unused imports,
+# pylint: disable=F0401,E1101,W0232,R0903,R0201,W0613,W0201
+## Unable to import, no __init__, no member, too few lines, method-could-be-function, unused argument, attribute defined outside __init__
+
 """
 
 Main module for Mediawikier package.
 
+To import from within Sublime:
+>>> from Mediawiker import mediawiker
+
+Mediawikier settings:
+
+    "mediawiker_file_rootdir": null,        # Specify a default dir for wiki files.
+    "mediawiker_use_subdirs": false,        #
+    "mediawiker_title_to_filename": true    #
+    "mediawiki_quote_plus": true,           # Use quote_plus rather than quote, will convert slashes and use '+' for space rather than '%20'
+
+    "mediawiker_clipboard_as_defaultpagename": false,   # Insert clipboard content as default page name (saves you a "ctrl+v" keystroke, horray).
+    "mediawiker_newtab_ongetpage": true,    # Open wikipages in a new tab.
+    "mediawiker_clearpagename_oninput": true, #  ??
+
+    "mediawiker_files_extension": ["mediawiki", "wiki", "wikipedia", ""],   # File extensions recognized and allowed.
+
+    "mediawiker_mark_as_minor": false,      #
 """
 
 
 from __future__ import print_function
 import sys
+import os
 from os.path import splitext, basename, dirname, join
 import imp
 pythonver = sys.version_info[0]
@@ -49,8 +77,8 @@ if sublime.platform() == 'linux':
             import _ssl
             print('Mediawiker: successfully loaded _ssl module for libssl.so.%s' % ssl_ver)
             break
-        except (ImportError) as e:
-            print('Mediawiker: _ssl module import error - ' + str(e))
+        except (ImportError) as err:
+            print('Mediawiker: _ssl module import error - ' + str(err))
     if '_ssl' in sys.modules:
         try:
             if sys.version_info < (3,):
@@ -60,8 +88,8 @@ if sublime.platform() == 'linux':
             else:
                 import ssl
                 print('Mediawiker: ssl loaded!')
-        except (ImportError) as e:
-            print('Mediawiker: ssl module import error - ' + str(e))
+        except (ImportError) as err:
+            print('Mediawiker: ssl module import error - ' + str(err))
 
 # after ssl mwclient import
 # in httpmw.py http_compat will be reloaded
@@ -266,17 +294,26 @@ def mw_get_page_text(site, title):
 
 
 def mw_strunquote(string_value):
+    """
+    Consider using (un)quote_plus variants.
+    This will escape '/' to '%2F' and replace space ' ' with '+' rather than '%20'.
+    """
+    quote_plus = mw_get_setting("mediawiki_quote_plus", False)
     if pythonver >= 3:
-        return urllib.parse.unquote(string_value)
+        return urllib.parse.unquote_plus(string_value) if quote_plus else urllib.parse.unquote(string_value)
     else:
-        return urllib.unquote(string_value.encode('ascii')).decode('utf-8')
+        return urllib.unquote_plus(string_value.encode('utf-8')) if quote_plus \
+            else urllib.unquote(string_value.encode('ascii')).decode('utf-8')
 
 
 def mw_strquote(string_value):
+    # Support for "quote_plus":
+    quote_plus = mw_get_setting("mediawiki_quote_plus", False)
     if pythonver >= 3:
-        return urllib.parse.quote(string_value)
+        return urllib.parse.quote_plus(string_value) if quote_plus else urllib.parse.quote(string_value)
     else:
-        return urllib.quote(string_value.encode('utf-8'))
+        return urllib.quote(string_value.encode('utf-8')) if quote_plus \
+            else urllib.quote(string_value.encode('utf-8'))
 
 
 def mw_pagename_clear(pagename):
@@ -308,28 +345,36 @@ def mw_save_mypages(title, storage_name='mediawiker_pagelist'):
     site_name_active = mw_get_setting('mediawiki_site_active')
     mediawiker_pagelist = mw_get_setting(storage_name, {})
 
-    if site_name_active not in mediawiker_pagelist:
-        mediawiker_pagelist[site_name_active] = []
+    # if site_name_active not in mediawiker_pagelist:
+    #     mediawiker_pagelist[site_name_active] = []
 
-    my_pages = mediawiker_pagelist[site_name_active]
+    # my_pages = mediawiker_pagelist[site_name_active]
+    my_pages = mediawiker_pagelist.setdefault(site_name_active, [])
+
 
     if my_pages:
-        while len(my_pages) >= pagelist_maxsize:
-            my_pages.pop(0)
-
         if title in my_pages:
             #for sorting
             my_pages.remove(title)
+        while len(my_pages) >= pagelist_maxsize:
+            my_pages.pop(0)
+
     my_pages.append(title)
     mw_set_setting(storage_name, mediawiker_pagelist)
 
 
 def mw_get_title():
-    ''' returns page title of active tab from view_name or from file_name'''
+    """
+    Returns page title of active tab from view_name or from file_name.
+    Be careful to make sure that the round-trip:
+        make_filename -> mw_get_title() ->  make_filename()
+    Maps 1:1.
+    """
 
     view_name = sublime.active_window().active_view().name()
     if view_name:
-        return view_name
+        print("DEBUG: view_name: ", view_name, "mw_strunquote(view_name)=", mw_strunquote(view_name))
+        return mw_strunquote(view_name)
     else:
         #haven't view.name, try to get from view.file_name (without extension)
         file_name = sublime.active_window().active_view().file_name()
@@ -337,11 +382,30 @@ def mw_get_title():
             wiki_extensions = mw_get_setting('mediawiker_files_extension')
             title, ext = splitext(basename(file_name))
             if ext[1:] in wiki_extensions and title:
-                return title
+                print("DEBUG: rewriting filename_stem %s -> %s" % (title, mw_strunquote(title)))
+                return mw_strunquote(title)
             else:
-                sublime.status_message('Anauthorized file extension for mediawiki publishing. Check your configuration for correct extensions.')
+                sublime.status_message('Unauthorized file extension for mediawiki publishing. Check your configuration for correct extensions.')
                 return ''
     return ''
+
+def mw_get_filename(title):
+    """
+    Return a file-system friendly/compatible filename from title.
+    """
+    file_rootdir = mw_get_setting('mediawiker_file_rootdir', None)
+    if not file_rootdir:
+        return mw_strquote(title)
+    use_subdirs = mw_get_setting('mediawiker_use_subdirs', False)
+    if use_subdirs:
+        filename = os.path.join(file_rootdir, *(mw_strquote(item) for item in os.path.split(title)))
+        filedir = os.path.dirname(filename)
+        if not os.path.isdir(filedir):
+            print("Making dir:", filedir)
+            os.makedirs(filedir)
+        return filename
+    return os.path.join(file_rootdir, mw_strquote(title))
+    # If you use subdirs, then you should also adjust mw_get_title() so that is can accomodate:
 
 
 def mw_get_hlevel(header_string, substring):
@@ -383,7 +447,18 @@ class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
 
 
 class MediawikerPageCommand(sublime_plugin.WindowCommand):
-    '''prepare all actions with wiki'''
+    """
+    Prepare all actions with the wiki.
+    The general pipeline is:
+
+            .run()       -> .on_done()
+         MediawikerPageCommand -> MediawikerValidateConnectionParamsCommand -> Mediawiker(ShowPage/PublishPage/AddCategory/etc)Command
+
+    When describing a command as string, it has format mediawiker_publish_page,
+    which refers to the class MediawikerPublishPageCommand.
+
+    The title parameter must be wikipage title, it cannot be a filename (quoted).
+    """
 
     action = ''
     is_inputfixed = False
@@ -527,6 +602,16 @@ class MediawikerPageListCommand(sublime_plugin.WindowCommand):
 
 
 class MediawikerValidateConnectionParamsCommand(sublime_plugin.WindowCommand):
+    """
+    It seems like this is called (with run) in MediawikerPageCommand.run()
+    in order to perform last preparations before executing the action that
+    interacts with the wiki.
+
+    action is typically mediawikier_show_page (MediawikerShowPageCommand).
+
+    title must be wikipage title, not filename.
+
+    """
     site = None
     password = ''
     title = ''
@@ -591,9 +676,38 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
         if is_writable:
             self.view.erase(edit, sublime.Region(0, self.view.size()))
             self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
+            # Here it would be nice to be able to cast to filename.
+            # Alternatively: Why can't view have two attributes, one for the page title and another for the filename???
             self.view.set_name(title)
+            if mw_get_setting('mediawiker_title_to_filename', True):
+                filename = mw_get_filename(title)
+                print("mw_get_filename('%s') returned '%s' -- using this to set the name." % (title, filename))
+                if mw_get_setting('mediawiker_file_rootdir', None):
+                    basename = os.path.basename(filename)
+                    dirname = os.path.dirname(filename)
+                    # How can I set the dirname? Using filename doesn't work.
+                    # Maybe add dirname to window.folders()? But, how to do that?
+                    # Modifying with w.folders().append(dirname) doesn't work...
+                    # https://www.sublimetext.com/docs/3/api_reference.html
+                    # https://www.sublimetext.com/docs/3/settings.html
+                    # Maybe use projects? https://www.sublimetext.com/docs/3/projects.html
+                    projectdata = {"folders": {"path": dirname}}
+                    # Alternatively, create file on filesystem and open that file?
+                    # -- But that is hard to do from the view, will generally open a new view.
+                    # Or, just do os.chdir?
+                    #print("DEBUG: setting os.chdir('%s')" % (dirname,))
+                    #os.chdir(dirname)       # Doesn't affect anything.
+                    #print("DEBUG: setting projet data:", projectdata)
+                    #sublime.active_window().set_project_data(projectdata)   # Doesn't work either...
+                    # Maybe set the default_dir settings key?
+                    # http://sublime-text-unofficial-documentation.readthedocs.org/en/latest/reference/settings.html
+                    self.view.settings().set('default_dir', dirname) # Works.
+                    self.view.set_name(basename)
+                else:
+                    self.view.set_name(filename)
+            self.view._wikipage_title = title # Save this.
             self.view.run_command('mediawiker_insert_text', {'position': 0, 'text': text})
-            sublime.status_message('Page %s was opened successfully.' % (title))
+            sublime.status_message('Page %s was opened successfully into view "%s".' % (title, self.view.name()))
 
 
 class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
@@ -1100,7 +1214,9 @@ class MediawikerTableSimpleToWikiCommand(sublime_plugin.TextCommand):
 
         return '%s %s\n%s\n%s' % (TBL_START, table_properties, text_wikitable, TBL_STOP)
 
-    def getrow(self, delimiter, rowlist=[]):
+    def getrow(self, delimiter, rowlist=None):
+        if rowlist is None:
+            rowlist = []
         cell_properties = ' '.join(['%s="%s"' % (prop, value) for prop, value in mw_get_setting('mediawiker_wikitable_cell_properties', {}).items()])
         cell_properties = '%s | ' % cell_properties if cell_properties else ''
         try:
@@ -1142,7 +1258,7 @@ class MediawikerCategoryListCommand(sublime_plugin.TextCommand):
 
         for page in self.get_list_data(category_root):
             if page.namespace == CATEGORY_NAMESPACE and not self.category_prefix:
-                    self.category_prefix = mw_get_category(page.name)[0]
+                self.category_prefix = mw_get_category(page.name)[0]
             self.add_page(page.name, page.namespace, True)
         if self.pages:
             self.pages_names.sort()
@@ -1223,12 +1339,12 @@ class MediawikerSearchStringListCommand(sublime_plugin.TextCommand):
         if search_value:
             self.search_result = self.do_search(search_value)
         if self.search_result:
-            for i in range(self.search_limit):
+            for _ in range(self.search_limit):
                 try:
                     page_data = self.search_result.next()
                     self.pages_names.append([page_data['title'], page_data['snippet']])
-                except:
-                    pass
+                except Exception as e:
+                    print("Exception during search_result generation:", repr(e))
             te = ''
             search_number = 1
             for pa in self.pages_names:

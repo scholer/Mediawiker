@@ -5,6 +5,8 @@
     { "keys": ["alt+f5"], "command": "mediawiker_open_page_in_browser" },
     { "keys": ["alt+f6"], "command": "mediawiker_set_active_site" },
     { "keys": ["alt+f7"], "command": "mediawiker_post_page" },
+    { "keys": ["alt+f8"], "command": "mediawiker_file_upload" },
+    { "keys": ["alt+f9"], "command": "mediawiker_insert_image" },
     { "keys": ["alt+f10"], "command": "mediawiker_page_list" },
     { "keys": ["alt+f11"], "command": "show_overlay", "args": {"overlay": "command_palette", "text":"Mediawiker"} }
 ]
