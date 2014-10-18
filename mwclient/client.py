@@ -412,7 +412,11 @@ class Site(object):
         predata['comment'] = description
         if ignore:
             predata['ignorewarnings'] = 'true'
-        predata['token'] = image.get_token('edit')
+        # This will likely invoke an api call.
+        # If image.name (title) is invalid, then this could cause an exception.
+        # (Would be KeyError for old mwclient code, is now ValueError)
+        # If an exception is raised, should we do anything about it? - No, we can't do much from here.
+        predata['token'] = image.get_token('edit') # May raise KeyError/ValueError
         predata['action'] = 'upload'
         predata['format'] = 'json'
         predata['filename'] = filename

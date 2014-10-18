@@ -1497,7 +1497,13 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
             sublime.status_message('File %s successfully uploaded to wiki as %s' % (self.file_path, self.file_destname))
         except IOError as e:
             sublime.message_dialog('Upload io error: %s' % e)
+        except ValueError as e:
+            # This might happen in predata['token'] = image.get_token('edit'), if e.g. title is invalid.
+            sublime.message_dialog('Upload error, invalid destination file name/title:\n %s' % e)
         except Exception as e:
+            print("UPLOAD ERROR:", repr(e))
+            #import traceback
+            #traceback.print_exc()
             sublime.message_dialog('Upload error: %s' % e)
 
 
