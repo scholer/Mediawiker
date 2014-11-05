@@ -58,9 +58,24 @@ import uuid
 #http://www.sublimetext.com/docs/3/api_reference.html
 #sublime.message_dialog
 
+### Add pyfiglet library to path: ###
+# (pyfiglet is used to print big ascii letters and is used by e.g. MediawikerInsertBigTodoTextCommand)
+# pwaller's original pyfiglet uses pkg_resources module,
+# which is not available in Sublime Text, so must use '-rs' version
+# from https://github.com/scholer/pyfiglet
+# Zip all files to 'pyfiglet-rs.zip', and ensure that the zipfiles structure matches this:
+# pyfiglet-rs.zip/setup.py
+# pyfiglet-rs.zip/pyfiglet/version.py
+# pyfiglet-rs.zip/pyfiglet/fonts
+# Then move pyfiglet-rs.zip to the directory containing this file.
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+PYFIGLET_PATH = os.path.join(PLUGIN_DIR, 'pyfiglet-rs.zip')
+sys.path.append(PYFIGLET_PATH)
+
 st_version = 2
 if int(sublime.version()) > 3000:
     st_version = 3
+
 
 # import custom ssl module on linux
 # thnx to wbond and his SFTP module!
@@ -137,19 +152,6 @@ def mw_deco(value):
     return value
 
 
-# If a function can be written as a short one-liner, then the mantra "explicit over implicit" kicks in:
-# In this case, replace
-# mw_dict_val(dictobj, key[, default_value]) with
-# dictobj.get(key, '' or default_value)  -- it's even shorter!
-#def mw_dict_val(dictobj, key, default_value=None):
-#    try:
-#        return dictobj[key]
-#    except KeyError:
-#        if default_value is None:
-#            return ''
-#        else:
-#            return default_value
-
 
 def mw_get_digest_header(header, username, password, path):
     """ Return an auth header for use in the "Digest" authorization realm. """
@@ -199,20 +201,22 @@ def mw_get_connect(password=''):
     BASIC_REALM = 'Basic realm'
     site_name_active = mw_get_setting('mediawiki_site_active')
     site_list = mw_get_setting('mediawiki_site')
-    params = site_list[site_name_active]
-    site = site_list[site_name_active]['host']
-    path = site_list[site_name_active]['path']
-    username = site_list[site_name_active]['username']
-    domain = site_list[site_name_active]['domain']
-    custom_cookies = params.get('cookies')
+    site_params = site_list[site_name_active] # easier to read variable
+    site = site_params['host']
+    path = site_params['path']
+    username = site_params['username']
+    domain = site_params['domain']
+    # If the mediawiki instance has OpenID login (e.g. google), it is easiest to
+    # login by injecting the open_id_session_id cookie into the session's cookie jar:
+    inject_cookies = site_params.get('cookies')
 
     proxy_host = ''
-    if 'proxy_host' in site_list[site_name_active]:
-        proxy_host = site_list[site_name_active]['proxy_host']
+    if 'proxy_host' in site_params:
+        proxy_host = site_params['proxy_host']
     # Uh, what the fuck...?
-    is_https = True if 'https' in site_list[site_name_active] and site_list[site_name_active]['https'] else False
+    is_https = True if 'https' in site_params and site_params['https'] else False
     # Why not just:
-    is_https = params.get('https')
+    is_https = site_params.get('https')
     if is_https:
         sublime.status_message('Trying to get https connection to https://%s' % site)
     # And what the fuck is up with 'site', 'addr' and 'host', all different name for the exact same (ambiguous) thing,
@@ -234,12 +238,12 @@ def mw_get_connect(password=''):
         # Note: For cookies[host], host is hostname string e.g. "lab.wyss.harvard.edu"; not ('https', 'harvard.edu') tuple.
         # CookieJar is a subclass of dict. I've changed it's __init__ so you can initialize it as a dict.
         # connection.post(<host>, ...) finds the host in the connection pool,
-        sitecon = mwclient.Site(host=addr, path=path, custom_cookies=custom_cookies)
+        sitecon = mwclient.Site(host=addr, path=path, inject_cookies=inject_cookies)
     except mwclient.HTTPStatusError as exc:
         e = exc.args if pythonver >= 3 else exc
-        is_use_http_auth = site_list[site_name_active].get('use_http_auth', False)
-        http_auth_login = site_list[site_name_active].get('http_auth_login', '')
-        http_auth_password = site_list[site_name_active].get('http_auth_password', '')
+        is_use_http_auth = site_params.get('use_http_auth', False)
+        http_auth_login = site_params.get('http_auth_login', '')
+        http_auth_password = site_params.get('http_auth_password', '')
 
         if e[0] == 401 and is_use_http_auth and http_auth_login:
             http_auth_header = e[1].getheader('www-authenticate')
@@ -450,6 +454,15 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
     """
     Prepare all actions with the wiki.
     The general pipeline is:
+    # MediawikerPageCommand.run()
+    ##  reads settings and prepares a few things
+    ##  exits by calling MediawikerPageCommand.on_done()
+    # MediawikerPageCommand.on_done()
+    ##  calls MediawikerValidateConnectionParamsCommand.run(title, action) through window.run_command
+    # MediawikerValidateConnectionParamsCommand.run(title, action)
+    ##  Retrieves password if required.
+    ##  Invoked call_page, which invokes run_command(action, kwargs-with-title-and-password)
+
 
             .run()       -> .on_done()
          MediawikerPageCommand -> MediawikerValidateConnectionParamsCommand -> Mediawiker(ShowPage/PublishPage/AddCategory/etc)Command
@@ -558,7 +571,7 @@ class MediawikerInsertTemplateCommand(sublime_plugin.WindowCommand):
 
 
 class MediawikerFileUploadCommand(sublime_plugin.WindowCommand):
-    ''' alias to Add template command '''
+    ''' alias to Upload TextCommand '''
 
     def run(self):
         self.window.run_command("mediawiker_page", {"action": "mediawiker_upload"})
@@ -607,7 +620,8 @@ class MediawikerValidateConnectionParamsCommand(sublime_plugin.WindowCommand):
     in order to perform last preparations before executing the action that
     interacts with the wiki.
 
-    action is typically mediawikier_show_page (MediawikerShowPageCommand).
+    action is typically a Window/TextCommand that interacts with the mediawiki server,
+    e.g. mediawikier_show_page (MediawikerShowPageCommand).
 
     title must be wikipage title, not filename.
 
@@ -1505,6 +1519,192 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
             #import traceback
             #traceback.print_exc()
             sublime.message_dialog('Upload error: %s' % e)
+
+
+
+
+
+class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
+    """
+    mediawiker_upload_batch_view
+    Batch upload command.
+    Reads filepaths from the current view's buffer and uploads them.
+    The current view's buffer must be in the format of:
+        <filepath>, <destname>, <file description>
+    If tab ('\t') is present in the buffer, this is used as field delimiter, otherwise comma (',') is used.
+    The first line can be marked by # followed by an info dict in json format, e.g.
+    # {"linktype": "Image", "imageformat": "frameless", "imagesize": "500px"}
+    (remember, JSON format requires double quotes when loading strings)
+    """
+
+    password = None
+    files = None # list of 3-string tuples, each tuple is (<filepath>, <destname>, <filedescription>)
+
+    def parseUploadBatchText(self, text, fieldsep=None):
+        """
+        Parse text and return list of 3-string tuples,
+        each tuple is (<filepath>, <destname>, <filedescription>)
+        """
+        # Ensure that we have '\n' as line terminator.
+        linesep = '\n'
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        # Split to lines, discarting empty lines:
+        lines = (line.strip() for line in text.split(linesep) if line.strip())
+        info = None
+        if text[0] == '#':
+            infoline = next(lines)[1:]
+            import json
+            try:
+                info = json.loads(infoline)
+            except ValueError as e:
+                print("JSON ValueError, could not parse string '%s' - '%s'" % (infoline, e))
+        # Proceed, discart lines starting with '#':
+        # I use a list rather than generator to make it easy to probe the first line:
+        lines = [line for line in lines if line[0] != '#']
+        if fieldsep is None:
+            fieldsep = '\t' if '\t' in lines[0] else ','
+        files = [[field.strip() for field in line.split(fieldsep)] for line in lines]
+        print("DEBUG: info=%s, files=%s" % (info, files))
+        return files, info
+
+    def appendText(self, text, edit=None):
+        if edit is None:
+            edit = self.edit
+        self.view.insert(edit, self.view.size(), text)
+
+    def run(self, edit, password='', title=''):
+        """ This is the entry point where the command is invoked. """
+        self.password = password
+        # self.view = sublime.active_view() # This is set by the sublime_plugin.TextCommand's __init__ method.
+        self.text = self.view.substr(sublime.Region(0, self.view.size()))
+        self.files, self.info = self.parseUploadBatchText(self.text)
+        self.edit = edit
+        # Not sure how to handle this in case of macros/repeats...
+
+        sitecon = mw_get_connect(self.password)
+        for row in self.files:
+            filepath = row[0]
+            destname = row[1] if len(row) > 1 and row[1] else os.path.basename(filepath)
+            filedesc = row[2] if len(row) > 2 else ""
+
+            self.appendText("\nUploading files...:\n")
+            try:
+                with open(filepath, 'rb') as f:
+                    print("\nAttempting to upload file %s to destination '%s' (description: '%s')...\n" % (filepath, destname, filedesc))
+                    sitecon.upload(f, destname, filedesc)
+                msg = 'File %s successfully uploaded to wiki as %s' % (filepath, destname)
+                sublime.status_message(msg)
+                print(msg)
+                self.appendText("\n[[Image:%s]]\n" % destname)
+            except IOError as e:
+                sublime.status_message('Upload IO error: "%s" for file "%s"' % (e, filepath))
+                msg = "\n--- Could not upload file %s; IOError '%s'" % (filepath, e)
+                print(msg)
+                self.appendText(msg)
+            except ValueError as e:
+                # This might happen in predata['token'] = image.get_token('edit'), if e.g. title is invalid.
+                msg = "\n--- Could not upload file %s; ValueError '%s' -- likely invalid destination filename/title, '%s'" % (filepath, e, destname)
+                sublime.status_message('Upload error "%s", invalid destination file name/title "%s" for file "%s"' % (e, filepath, destname))
+                self.appendText(msg)
+                print(msg)
+            except Exception as e:
+                # Does this include login/login-cookie errors?
+                # Should I break the for-loop in this case?
+                print("UPLOAD ERROR:", repr(e))
+                #import traceback
+                #traceback.print_exc()
+                sublime.message_dialog('Upload error: %s' % e)
+                msg = "\n--- Other EXCEPTION '%s' while uploading file %s to destination '%s'" % (repr(e), filepath, destname)
+                self.appendText(msg)
+                print(msg)
+                break
+
+class MediawikerInsertBigTextCommand(sublime_plugin.TextCommand):
+    """
+    Inserts big text.
+    mediawiker_insert_big_text
+    """
+    def printText(self, text):
+        """
+        Prints the text. Can be overwritten by subclasses to change behaviour.
+        Note that Edit objects may not be used after the TextCommand's run method has returned.
+        Thus, if you have used e.g. show_input_panel to get input from the user,
+        you will have to use run_command('text command string', kwargs) to perform edits.
+        """
+        #if edit is None:
+        #    edit = self.edit
+        #self.view.insert(edit, self.view.size(), text) # Doesn't work if you have finished the run() method.
+        #pos = self.view.size() # At the end of the buffer. Use 0 for start of buffer;
+        # selection is a sorted list of non-overlapping regions:
+        region = self.view.sel()[-1]
+        line = self.view.full_line(region)  # Returns a region.
+        pos = line.end()     # We want to be at the end, NOT end+1.
+        self.view.run_command('mediawiker_insert_text', {'position': pos, 'text': text})
+
+    def getBigText(self, text):
+        font = 'Colossal'
+        try:
+            from pyfiglet import Figlet
+        except ImportError:
+            print("ERROR, could not import pyfiglet, big text not available.")
+            print("sys.path=", sys.path)
+            return text
+        f = Figlet(font)
+        f.Font.smushMode = 64
+        return f.renderText(text)
+
+    def adjustText(self, bigtext):
+        """ Can be over-written by subclasses to modify the big-text. """
+        return bigtext
+
+    def run(self, edit):
+        """ This is the entry point where the command is invoked. """
+        self.text = None
+        self.edit = edit
+        # Note: the on_done, on_change, on_cancel functions are only called *AFTER* run is completed.
+        sublime.active_window().show_input_panel('Input text:', '', self.set_text, None, None)
+
+    def set_text(self, text):
+        print("Setting self.text to: %s" % (text, ))
+        self.text = text
+        if self.text:
+            bigtext = self.getBigText(self.text).strip()
+            full = self.adjustText(bigtext)
+            self.printText(full)
+        else:
+            print("No text input - self.text = %s" % (self.text, ))
+
+
+
+class MediawikerInsertBigTodoCommand(MediawikerInsertBigTextCommand):
+    """
+    Inserts big 'TODO' text.
+    mediawiker_insert_big_todo
+    """
+    def adjustText(self, bigtext):
+        """ Can be over-written by subclasses to modify the big-text. """
+        bigtext.replace('\r\n', '\n').replace('\r', '\n').strip()
+        full = "\n".join("   "+line for line in bigtext.split('\n'))
+        if self.text:
+            # Add "TODO: xxx" to make searching easier.
+            full = "".join(["   TODO: ", self.text, "\n", full])
+        return full
+
+class MediawikerInsertBigCommentCommand(MediawikerInsertBigTextCommand):
+    """
+    Inserts big comment text.
+    mediawiker_insert_big_comment
+    """
+    def adjustText(self, bigtext):
+        """ Can be over-written by subclasses to modify the big-text. """
+        bigtext.replace('\r\n', '\n').replace('\r', '\n').strip()
+        full = "\n".join("   "+line for line in bigtext.split('\n'))
+        if self.text:
+            # Add "TODO: xxx" to make searching easier.
+            full = "".join(["<--", self.text, "\n", full, "-->\n"])
+        return full
+
+
 
 
 class MediawikerFavoritesAddCommand(sublime_plugin.WindowCommand):

@@ -62,7 +62,7 @@ class Site(object):
     api_limit = 500
 
     def __init__(self, host, path='/w/', ext='.php', pool=None, retry_timeout=30, max_retries=25, wait_callback=lambda *x: None,
-                 max_lag=3, compress=True, force_login=True, do_init=True, custom_headers=None, custom_cookies=None):
+                 max_lag=3, compress=True, force_login=True, do_init=True, custom_headers=None, inject_cookies=None):
         # Setup member variables
         self.host = host    # host is here a two-tuple of strings: (<scheme>, <hostname>), but can also be just <hostname> if https is not specified!
         self.path = path
@@ -97,7 +97,7 @@ class Site(object):
         else:
             self.connection = pool
 
-        if custom_cookies:
+        if inject_cookies:
             # Not sure if this should be host as a (scheme, hostname) tuple or just host as a string:
             # Here, only the hostname is used, not the scheme:
             # I guess it can be both...
@@ -105,7 +105,7 @@ class Site(object):
                 scheme, hostname = host
             else:
                 hostname = host
-            self.connection.cookies[hostname] = httpmw.CookieJar(custom_cookies)
+            self.connection.cookies[hostname] = httpmw.CookieJar(inject_cookies)
 
         # Page generators
         self.pages = listing.PageList(self)
@@ -238,7 +238,7 @@ class Site(object):
     def _query_string(*args, **kwargs):
         kwargs.update(args)
         if pythonver >= 3:
-            qs = urllib.parse.urlencode([(k, Site._to_str(v)) for k, v in list(kwargs.items()) if k != 'wpEditToken'])
+            qs = urllib.parse.urlencode([(k, Site._to_str(v)) for k, v in kwargs.items() if k != 'wpEditToken'])
             if 'wpEditToken' in kwargs:
                 qs += '&wpEditToken=' + urllib.parse.quote(Site._to_str(kwargs['wpEditToken']))
         else:

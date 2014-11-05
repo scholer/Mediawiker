@@ -87,13 +87,13 @@ class CookieJar(dict):
 
     def get_cookie_header(self):
         if pythonver >= 3:
-            return '; '.join(('%s=%s' % i for i in list(self.items())))
+            return '; '.join(('%s=%s' % i for i in self.items()))
         else:
             return '; '.join(('%s=%s' % i for i in self.iteritems()))
 
     def __iter__(self):
         if pythonver >= 3:
-            for k, v in list(self.items()):
+            for k, v in self.items():
                 yield Cookie(k, v)
         else:
             for k, v in self.iteritems():
