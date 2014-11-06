@@ -100,14 +100,15 @@ class Page(object):
             self.site.tokens[type] = '0'
         if self.site.tokens.get(type, '0') == '0' or force:
             info = self.site.api('query', titles=self.name, prop='info', intoken=type)
-            # Does itervalues() really make a difference in python2 ?
-            for i in info['query']['pages'].values():
-                if i['title'] == self.name:
-                    # If title is invalid, then raise appropriate exception:
-                    # (Otherwise it will likely be KeyError, which is rather informative)
-                    if 'invalid' in i and i.get('title'):
-                        raise ValueError(i['title'])
-                    self.site.tokens[type] = i['%stoken' % type]
+            # Iterator variable. Avoid redundant code later. And 'i' is generally reserved for indices/enumartion.
+            pageinfo = info['query']['pages'].values() if pythonver >= 3 else info['query']['pages'].itervalues()
+            for page in pageinfo:
+                if page['title'] == self.name:
+                    # If title is invalid, then raise an appropriate exception.
+                    if 'invalid' in page and page.get('title'):
+                        raise ValueError(page['title'])
+                    # Otherwise the user will receive a KeyError in the statement below, which is not very precise.
+                    self.site.tokens[type] = page['%stoken' % type]
 
         return self.site.tokens[type]
 

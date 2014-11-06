@@ -690,32 +690,24 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
         if is_writable:
             self.view.erase(edit, sublime.Region(0, self.view.size()))
             self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
-            # Here it would be nice to be able to cast to filename.
-            # Alternatively: Why can't view have two attributes, one for the page title and another for the filename???
             self.view.set_name(title)
             if mw_get_setting('mediawiker_title_to_filename', True):
+                # If mediawiker_title_to_filename is specified, the title is cast to a
+                # "filesystem friendly" alternative by quoting. When posting, this is converted
+                # back to the original title.
                 filename = mw_get_filename(title)
                 print("mw_get_filename('%s') returned '%s' -- using this to set the name." % (title, filename))
+                # I like to have a default directory where I store my mediawiki pages.
+                # I use the settings key 'mediawiker_file_rootdir' to specify this directory,
+                # which is prefixed to the file, if specified:
+                # (should possibly be specified on a per-wiki basis.)
+                # I then use the view's default_dir setting to change to this dir:
+                # There are also some considerations for pages with '/' in the title,
+                # this can either be quoted or we can place the file in a sub-directory.
                 if mw_get_setting('mediawiker_file_rootdir', None):
                     basename = os.path.basename(filename)
                     dirname = os.path.dirname(filename)
-                    # How can I set the dirname? Using filename doesn't work.
-                    # Maybe add dirname to window.folders()? But, how to do that?
-                    # Modifying with w.folders().append(dirname) doesn't work...
-                    # https://www.sublimetext.com/docs/3/api_reference.html
-                    # https://www.sublimetext.com/docs/3/settings.html
-                    # Maybe use projects? https://www.sublimetext.com/docs/3/projects.html
-                    projectdata = {"folders": {"path": dirname}}
-                    # Alternatively, create file on filesystem and open that file?
-                    # -- But that is hard to do from the view, will generally open a new view.
-                    # Or, just do os.chdir?
-                    #print("DEBUG: setting os.chdir('%s')" % (dirname,))
-                    #os.chdir(dirname)       # Doesn't affect anything.
-                    #print("DEBUG: setting projet data:", projectdata)
-                    #sublime.active_window().set_project_data(projectdata)   # Doesn't work either...
-                    # Maybe set the default_dir settings key?
-                    # http://sublime-text-unofficial-documentation.readthedocs.org/en/latest/reference/settings.html
-                    self.view.settings().set('default_dir', dirname) # Works.
+                    self.view.settings().set('default_dir', dirname) # Update the view's working dir.
                     self.view.set_name(basename)
                 else:
                     self.view.set_name(filename)
@@ -1530,11 +1522,20 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
     Batch upload command.
     Reads filepaths from the current view's buffer and uploads them.
     The current view's buffer must be in the format of:
-        <filepath>, <destname>, <file description>
-    If tab ('\t') is present in the buffer, this is used as field delimiter, otherwise comma (',') is used.
-    The first line can be marked by # followed by an info dict in json format, e.g.
-    # {"linktype": "Image", "imageformat": "frameless", "imagesize": "500px"}
-    (remember, JSON format requires double quotes when loading strings)
+        <filepath>, <destname>, <file description>, e.g.
+        /home/me/picture.jpg, xmas_tree.jpg, A picture of a christmas tree.
+    If destname is empty or missing, the file's filename is used.
+    If description is missing, an empty string is used.
+    If tab ('\t') is present, this is used as field delimiter, otherwise comma (',') is used.
+
+    The first line can be marked by '#' followed by an info dict in json format, e.g.
+        # {"linktype": "Image", "imageformat": "frameless", "imagesize": "500px"}
+    (remember, JSON format requires double quotes ("key", not 'key') when loading from strings)
+
+    Bonus tip:  On Windows, use ShellTools' (or equivalent) "copy path" context menu
+                entry to easily get the path of multiple files from Explorer.
+                Use Excel, Python, or similar if you want to change destname
+                or add a description for each file.
     """
 
     password = None
