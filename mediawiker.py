@@ -208,17 +208,20 @@ def mw_get_connect(password=''):
     path = site_params['path']
     username = site_params['username']
     domain = site_params['domain']
-    proxy_host = site_params.get('proxy_host', '')
     is_https = site_params.get('https', False)
     if is_https:
         sublime.status_message('Trying to get https connection to https://%s' % site)
     host = site if not is_https else ('https', site)
+    proxy_host = site_params.get('proxy_host', '')
     if proxy_host:
         # proxy_host format is host:port, if only host defined, 80 will be used
         host = proxy_host if not is_https else ('https', proxy_host)
         proto = 'https' if is_https else 'http'
         path = '%s://%s%s' % (proto, site, path)
         sublime.message_dialog('Connection with proxy: %s %s' % (host, path))
+    # If the mediawiki instance has OpenID login (e.g. google), it is easiest to
+    # login by injecting the open_id_session_id cookie into the session's cookie jar:
+    inject_cookies = site_params.get('cookies')
 
     try:
         # It would be nice to be able to pass in old cookies, but that is not part of the original design.
@@ -1706,7 +1709,35 @@ class MediawikerFavoritesOpenCommand(sublime_plugin.WindowCommand):
         self.window.run_command("mediawiker_page_list", {"storage_name": 'mediawiker_favorites'})
 
 
+class MediawikerSavePageCommand(sublime_plugin.WindowCommand):
+    """
+    The default 'save' behaviour, invoked with e.g. ctrl+s (cmd+s) should be
+    user-customizable, and certainly NOT override the user's ability to save the buffer
+    using the normal ctrl+s keyboard shortcut.
+
+    I, for one, hit ctrl+s every ten seconds or so, just out of habit.
+    I *do not* want Mediawiker to push the page to the server that often (thus cluttering the history).
+    I keep a local copy of the file during editing (which is synchronized via Dropbox
+    to other running ST instances on other computers - works perfectly).
+
+    Perhaps it is better to use an EventListener and use on_pre/post_save hooks to
+    alter ctrl+s behaviour? Is that what the MediawikerLoad EventListener below is trying to do?
+    """
+    def run(self):
+        on_save_action = mw_get_setting('mediawiker_on_save_action')
+        # on_save_action can be a string or list, specifying what actions to take:
+        if 'savefile' in on_save_action:
+            # How do you save the view buffer?
+            pass
+        if 'publish' in on_save_action:
+            self.window.run_command("mediawiker_page", {"action": "mediawiker_publish_page"})
+
+
 class MediawikerLoad(sublime_plugin.EventListener):
+    """
+    What is this and how is this used?
+    And what does mediawiker_is_here and mediawiker_wiki_instead_editor mean?
+    """
     def on_activated(self, view):
         if view.settings().get('syntax').endswith('Mediawiker/Mediawiki.tmLanguage'):
             # Mediawiki mode

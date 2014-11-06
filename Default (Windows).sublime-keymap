@@ -31,11 +31,5 @@
     },
     {
         "keys": ["f5"], "command": "mediawiker_reopen_page", "context": [{"key": "setting.mediawiker_is_here", "operand": true}]
-    },
-    {
-        "keys": ["ctrl+s"], "command": "mediawiker_post_page", "context": [
-            {"key": "setting.mediawiker_is_here", "operand": true},
-            {"key": "setting.mediawiker_wiki_instead_editor", "operand": true}
-        ]
     }
 ]
