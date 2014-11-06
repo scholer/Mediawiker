@@ -53,10 +53,10 @@ import base64
 from hashlib import md5
 import uuid
 
-#https://github.com/wbond/sublime_package_control/wiki/Sublime-Text-3-Compatible-Packages
-#http://www.sublimetext.com/docs/2/api_reference.html
-#http://www.sublimetext.com/docs/3/api_reference.html
-#sublime.message_dialog
+# https://github.com/wbond/sublime_package_control/wiki/Sublime-Text-3-Compatible-Packages
+# http://www.sublimetext.com/docs/2/api_reference.html
+# http://www.sublimetext.com/docs/3/api_reference.html
+# sublime.message_dialog
 
 ### Add pyfiglet library to path: ###
 # (pyfiglet is used to print big ascii letters and is used by e.g. MediawikerInsertBigTodoTextCommand)
@@ -76,7 +76,6 @@ st_version = 2
 if int(sublime.version()) > 3000:
     st_version = 3
 
-
 # import custom ssl module on linux
 # thnx to wbond and his SFTP module!
 # http://sublimetext.userecho.com/topic/50801-bundle-python-ssl-module/
@@ -92,8 +91,8 @@ if sublime.platform() == 'linux':
             import _ssl
             print('Mediawiker: successfully loaded _ssl module for libssl.so.%s' % ssl_ver)
             break
-        except (ImportError) as err:
-            print('Mediawiker: _ssl module import error - ' + str(err))
+        except (ImportError) as e:
+            print('Mediawiker: _ssl module import error - ' + str(e))
     if '_ssl' in sys.modules:
         try:
             if sys.version_info < (3,):
@@ -103,8 +102,8 @@ if sublime.platform() == 'linux':
             else:
                 import ssl
                 print('Mediawiker: ssl loaded!')
-        except (ImportError) as err:
-            print('Mediawiker: ssl module import error - ' + str(err))
+        except (ImportError) as e:
+            print('Mediawiker: ssl module import error - ' + str(e))
 
 # after ssl mwclient import
 # in httpmw.py http_compat will be reloaded
@@ -153,6 +152,9 @@ def mw_deco(value):
 
 
 
+
+
+
 def mw_get_digest_header(header, username, password, path):
     """ Return an auth header for use in the "Digest" authorization realm. """
     HEADER_ATTR_PATTERN = r'([\w\s]+)=\"?([^".]*)\"?'
@@ -172,7 +174,7 @@ def mw_get_digest_header(header, username, password, path):
     digest_uri = header_attrs.get('uri', path)
     algorithm = header_attrs.get('algorithm', 'MD5')
     # TODO: ?
-    # opaque = header_attrs['opaque'] if 'opaque' in header_attrs else ''
+    # opaque = header_attrs.get('opaque', '')
     entity_body = ''  # TODO: ?
 
     if algorithm == 'MD5':
@@ -201,33 +203,22 @@ def mw_get_connect(password=''):
     BASIC_REALM = 'Basic realm'
     site_name_active = mw_get_setting('mediawiki_site_active')
     site_list = mw_get_setting('mediawiki_site')
-    site_params = site_list[site_name_active] # easier to read variable
+    site_params = site_list[site_name_active]
     site = site_params['host']
     path = site_params['path']
     username = site_params['username']
     domain = site_params['domain']
-    # If the mediawiki instance has OpenID login (e.g. google), it is easiest to
-    # login by injecting the open_id_session_id cookie into the session's cookie jar:
-    inject_cookies = site_params.get('cookies')
-
-    proxy_host = ''
-    if 'proxy_host' in site_params:
-        proxy_host = site_params['proxy_host']
-    # Uh, what the fuck...?
-    is_https = True if 'https' in site_params and site_params['https'] else False
-    # Why not just:
-    is_https = site_params.get('https')
+    proxy_host = site_params.get('proxy_host', '')
+    is_https = site_params.get('https', False)
     if is_https:
         sublime.status_message('Trying to get https connection to https://%s' % site)
-    # And what the fuck is up with 'site', 'addr' and 'host', all different name for the exact same (ambiguous) thing,
-    # which is either (<scheme>, <hostname>) or just <hostname>.
-    addr = site if not is_https else ('https', site)
+    host = site if not is_https else ('https', site)
     if proxy_host:
         # proxy_host format is host:port, if only host defined, 80 will be used
-        addr = proxy_host if not is_https else ('https', proxy_host)
+        host = proxy_host if not is_https else ('https', proxy_host)
         proto = 'https' if is_https else 'http'
         path = '%s://%s%s' % (proto, site, path)
-        sublime.message_dialog('Connection with proxy: %s %s' % (addr, path))
+        sublime.message_dialog('Connection with proxy: %s %s' % (host, path))
 
     try:
         # It would be nice to be able to pass in old cookies, but that is not part of the original design.
@@ -238,13 +229,12 @@ def mw_get_connect(password=''):
         # Note: For cookies[host], host is hostname string e.g. "lab.wyss.harvard.edu"; not ('https', 'harvard.edu') tuple.
         # CookieJar is a subclass of dict. I've changed it's __init__ so you can initialize it as a dict.
         # connection.post(<host>, ...) finds the host in the connection pool,
-        sitecon = mwclient.Site(host=addr, path=path, inject_cookies=inject_cookies)
+        sitecon = mwclient.Site(host=host, path=path, inject_cookies=inject_cookies)
     except mwclient.HTTPStatusError as exc:
         e = exc.args if pythonver >= 3 else exc
         is_use_http_auth = site_params.get('use_http_auth', False)
         http_auth_login = site_params.get('http_auth_login', '')
         http_auth_password = site_params.get('http_auth_password', '')
-
         if e[0] == 401 and is_use_http_auth and http_auth_login:
             http_auth_header = e[1].getheader('www-authenticate')
             custom_headers = {}
@@ -263,7 +253,7 @@ def mw_get_connect(password=''):
                     custom_headers = {'Authorization': 'Digest %s' % auth}
 
                 if custom_headers:
-                    sitecon = mwclient.Site(host=addr, path=path, custom_headers=custom_headers)
+                    sitecon = mwclient.Site(host=host, path=path, custom_headers=custom_headers)
             else:
                 error_message = 'HTTP connection failed: Unknown realm.'
                 sublime.status_message(error_message)
@@ -329,10 +319,8 @@ def mw_pagename_clear(pagename):
     try:
         pagename = mw_strunquote(pagename)
     except UnicodeEncodeError:
-        #return pagename
         pass
     except Exception:
-        #return pagename
         pass
 
     if site in pagename:
@@ -358,7 +346,7 @@ def mw_save_mypages(title, storage_name='mediawiker_pagelist'):
 
     if my_pages:
         if title in my_pages:
-            #for sorting
+            # for sorting - remove *before* trimming size, not after.
             my_pages.remove(title)
         while len(my_pages) >= pagelist_maxsize:
             my_pages.pop(0)
@@ -380,7 +368,7 @@ def mw_get_title():
         print("DEBUG: view_name: ", view_name, "mw_strunquote(view_name)=", mw_strunquote(view_name))
         return mw_strunquote(view_name)
     else:
-        #haven't view.name, try to get from view.file_name (without extension)
+        # haven't view.name, try to get from view.file_name (without extension)
         file_name = sublime.active_window().active_view().file_name()
         if file_name:
             wiki_extensions = mw_get_setting('mediawiker_files_extension')
@@ -503,7 +491,7 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
             else:
                 self.on_done(title)
         elif self.action == 'mediawiker_reopen_page':
-            #get page name
+            # get page name
             if not title:
                 title = mw_get_title()
             self.action = 'mediawiker_show_page'
@@ -599,7 +587,7 @@ class MediawikerPageListCommand(sublime_plugin.WindowCommand):
         self.my_pages = mediawiker_pagelist.get(site_name_active, [])
         if self.my_pages:
             self.my_pages.reverse()
-            #error 'Quick panel unavailable' fix with timeout..
+            # error 'Quick panel unavailable' fix with timeout..
             sublime.set_timeout(lambda: self.window.show_quick_panel(self.my_pages, self.on_done), 1)
         else:
             sublime.status_message('List of pages for wiki "%s" is empty.' % (site_name_active))
@@ -742,7 +730,7 @@ class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
             summary = '%s%s' % (summary, mw_get_setting('mediawiker_summary_postfix', ' (by SublimeText.Mediawiker)'))
             mark_as_minor = mw_get_setting('mediawiker_mark_as_minor')
             if self.page.can('edit'):
-                #invert minor settings command '!'
+                # invert minor settings command '!'
                 if summary[0] == '!':
                     mark_as_minor = not mark_as_minor
                     summary = summary[1:]
@@ -752,7 +740,6 @@ class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
         except mwclient.EditError as e:
             sublime.status_message('Can\'t publish page %s (%s)' % (self.title, e))
         sublime.status_message('Wiki page %s was successfully published to wiki.' % (self.title))
-        #save my pages
         mw_save_mypages(self.title)
 
 
@@ -765,7 +752,7 @@ class MediawikerShowTocCommand(sublime_plugin.TextCommand):
         self.items = []
         self.regions = []
         self.regions = self.view.find_all(self.pattern)
-        #self.items = map(self.get_header, self.regions)
+        # self.items = map(self.get_header, self.regions)
         self.items = [self.get_header(x) for x in self.regions]
         sublime.set_timeout(lambda: self.view.window().show_quick_panel(self.items, self.on_done), 1)
 
@@ -879,7 +866,7 @@ class MediawikerEnumerateTocCommand(sublime_plugin.TextCommand):
         len_delta = 0
         for r in self.regions:
             if len_delta:
-                #prev. header text was changed, move region to new position
+                # prev. header text was changed, move region to new position
                 r_new = sublime.Region(r.a + len_delta, r.b + len_delta)
             else:
                 r_new = r
@@ -888,20 +875,20 @@ class MediawikerEnumerateTocCommand(sublime_plugin.TextCommand):
             level = mw_get_hlevel(header_text, "=")
             current_number_str = ''
             i = 1
-            #generate number value, start from 1
+            # generate number value, start from 1
             while i <= level:
                 position_index = i - 1
                 header_number = header_level_number[position_index]
                 if i == level:
-                    #incr. number
+                    # incr. number
                     header_number += 1
-                    #save current number
+                    # save current number
                     header_level_number[position_index] = header_number
-                    #reset sub-levels numbers
+                    # reset sub-levels numbers
                     header_level_number[i:] = [0] * len(header_level_number[i:])
                 if header_number:
                     current_number_str = "%s.%s" % (current_number_str, header_number) if current_number_str else '%s' % (header_number)
-                #incr. level
+                # incr. level
                 i += 1
 
             #get title only
@@ -922,7 +909,7 @@ class MediawikerSetActiveSiteCommand(sublime_plugin.WindowCommand):
     def run(self):
         self.site_active = mw_get_setting('mediawiki_site_active')
         sites = mw_get_setting('mediawiki_site')
-        #self.site_keys = map(self.is_checked, list(sites.keys()))
+        # self.site_keys = map(self.is_checked, list(sites.keys()))
         self.site_keys = [self.is_checked(x) for x in sites.keys()]
         sublime.set_timeout(lambda: self.window.show_quick_panel(self.site_keys, self.on_done), 1)
 
@@ -960,7 +947,7 @@ class MediawikerAddCategoryCommand(sublime_plugin.TextCommand):
         self.sitecon = mw_get_connect(password)
         self.category_root = mw_get_category(mw_get_setting('mediawiker_category_root'))[1]
         sublime.active_window().show_input_panel('Wiki root category:', self.category_root, self.get_category_menu, None, None)
-        #self.get_category_menu(self.category_root)
+        # self.get_category_menu(self.category_root)
 
     def get_category_menu(self, category_root):
         category = self.sitecon.Categories[category_root]
@@ -1009,7 +996,7 @@ class MediawikerCsvTableCommand(sublime_plugin.TextCommand):
         for region in self.view.sel():
             table_data_dic_tmp = []
             table_data = ''
-            #table_data_dic_tmp = map(self.get_table_data, self.view.substr(region).split('\n'))
+            # table_data_dic_tmp = map(self.get_table_data, self.view.substr(region).split('\n'))
             table_data_dic_tmp = [self.get_table_data(x) for x in self.view.substr(region).split('\n')]
 
             # verify and fix columns count in rows
@@ -1339,7 +1326,7 @@ class MediawikerSearchStringListCommand(sublime_plugin.TextCommand):
         sublime.active_window().show_input_panel('Wiki search:', '', self.show_results, None, None)
 
     def show_results(self, search_value=''):
-        #TODO: paging?
+        # TODO: paging?
         self.pages_names = []
         self.search_limit = mw_get_setting('mediawiker_search_results_count')
         if search_value:
@@ -1368,13 +1355,13 @@ class MediawikerSearchStringListCommand(sublime_plugin.TextCommand):
     def antispan(self, text):
         span_replace_open = "`"
         span_replace_close = "`"
-        #bold and italic tags cut
+        # bold and italic tags cut
         text = text.replace("'''", "")
         text = text.replace("''", "")
-        #spans to bold
+        # spans to bold
         text = re.sub(r'<span(.*?)>', span_replace_open, text)
         text = re.sub(r'<\/span>', span_replace_close, text)
-        #divs cut
+        # divs cut
         text = re.sub(r'<div(.*?)>', '', text)
         text = re.sub(r'<\/div>', '', text)
         return text
@@ -1399,7 +1386,7 @@ class MediawikerAddImageCommand(sublime_plugin.TextCommand):
         if len(image_prefix) >= self.image_prefix_min_lenght:
             sitecon = mw_get_connect(self.password)
             images = sitecon.allpages(prefix=image_prefix, namespace=IMAGE_NAMESPACE)  # images list by prefix
-            #self.images_names = map(self.get_page_title, images)
+            # self.images_names = map(self.get_page_title, images)
             self.images_names = [self.get_page_title(x) for x in images]
             sublime.set_timeout(lambda: sublime.active_window().show_quick_panel(self.images_names, self.on_done), 1)
         else:
@@ -1437,11 +1424,11 @@ class MediawikerAddTemplateCommand(sublime_plugin.TextCommand):
         parameters = re.findall(pattern, text)
         for param in parameters:
             param = param.strip('{}')
-            #default value or not..
+            # default value or not..
             param = param.replace('|', '=') if '|' in param else '%s=' % param
             if param not in params_list:
                 params_list.append(param)
-        return ''.join(['|%s\n' % param for param in params_list])
+        return ''.join(['|%s\n' % p for p in params_list])
 
     def on_done(self, idx):
         if idx >= 0:
@@ -1508,8 +1495,6 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
             sublime.message_dialog('Upload error, invalid destination file name/title:\n %s' % e)
         except Exception as e:
             print("UPLOAD ERROR:", repr(e))
-            #import traceback
-            #traceback.print_exc()
             sublime.message_dialog('Upload error: %s' % e)
 
 
@@ -1719,3 +1704,11 @@ class MediawikerFavoritesOpenCommand(sublime_plugin.WindowCommand):
 
     def run(self):
         self.window.run_command("mediawiker_page_list", {"storage_name": 'mediawiker_favorites'})
+
+
+class MediawikerLoad(sublime_plugin.EventListener):
+    def on_activated(self, view):
+        if view.settings().get('syntax').endswith('Mediawiker/Mediawiki.tmLanguage'):
+            # Mediawiki mode
+            view.settings().set('mediawiker_is_here', True)
+            view.settings().set('mediawiker_wiki_instead_editor', mw_get_setting('mediawiker_wiki_instead_editor'))
