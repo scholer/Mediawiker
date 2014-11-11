@@ -400,7 +400,14 @@ class Site(object):
             self.site_init()
 
     def upload(self, fileobj=None, filename=None, description='', ignore=False, file_size=None, url=None, session_key=None):
+        """
+        Parameters:
+            fileobj: File-like object with the data to upload.
+            filename: Destination filename (on the wiki).
+            description: Add this description to the file (on the wiki).
+        """
         if self.version[:2] < (1, 16):
+            print("DEBUG: upload() - Using old upload method...")
             return compatibility.old_upload(self, fileobj=fileobj, filename=filename, description=description, ignore=ignore, file_size=file_size)
 
         image = self.Images[filename]
@@ -432,7 +439,7 @@ class Site(object):
                 file_size = len(fileobj)
                 fileobj = StringIO(fileobj)
             if file_size is None:
-                fileobj.seek(0, 2)
+                fileobj.seek(0, 2)          # Seek to end of file.
                 file_size = fileobj.tell()
                 fileobj.seek(0, 0)
 
@@ -449,7 +456,7 @@ class Site(object):
                 if not info:
                     info = {}
                 if self.handle_api_result(info, kwargs=predata):
-                    return info.get('upload', {})
+                    return info.get('upload', {}) # 'upload' should be the only key...
             except errors.HTTPStatusError as exc:
                 e = exc.args if pythonver >= 3 else exc
                 if e[0] == 503 and e[1].getheader('X-Database-Lag'):
