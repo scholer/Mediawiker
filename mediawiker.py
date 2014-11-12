@@ -68,9 +68,18 @@ import uuid
 # pyfiglet-rs.zip/pyfiglet/version.py
 # pyfiglet-rs.zip/pyfiglet/fonts
 # Then move pyfiglet-rs.zip to the directory containing this file.
-PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
-PYFIGLET_PATH = os.path.join(PLUGIN_DIR, 'pyfiglet.zip')
-sys.path.append(PYFIGLET_PATH)
+try:
+    # Use up-to-date library, if available:
+    import pyfiglet
+except ImportError:
+    # Use included library:
+    PYFIGLET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib', 'pyfiglet.zip')
+    sys.path.append(PYFIGLET_PATH)
+    try:
+        import pyfiglet
+        print("Imported pyfiglet from local zip library.")
+    except ImportError:
+        print("Could not import local pyfiglet from zip; big text will not be available.")
 
 st_version = 2
 if int(sublime.version()) > 3000:
@@ -458,8 +467,8 @@ def get_template_params_dict(template, defaultvalue=''):
         {'1': '', '2': 'you', 'time: 'day'}
     """
     parameters = get_template_params(template)
-    parameters = {split[0] : split[1] if len(split) > 1 else defaultvalue for split in
-                  (param.split('|') for param in parameters)}
+    parameters = dict((split[0], split[1] if len(split) > 1 else defaultvalue) for split in
+                  (param.split('|') for param in parameters)) # Python 2.6 does not support dict comprehensions.
     return parameters
 
 # This should be a function; not a method. ("self" isn't used).
