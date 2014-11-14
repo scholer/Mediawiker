@@ -84,6 +84,8 @@ except ImportError:
 st_version = 2
 if int(sublime.version()) > 3000:
     st_version = 3
+else:
+    FileExistsError = WindowsError
 
 # import custom ssl module on linux
 # thnx to wbond and his SFTP module!
@@ -495,11 +497,51 @@ def get_template_params_str(text):
     params_dict = get_template_params_dict(text)
     return ''.join('|%s=%s\n' % (name, defval) for name, defval in sorted(params_dict.items()))
 
+def substitute_template_params(template, params, defaultvalue='', keep_unmatched=False):
+    """
+    Return template where where named placeholders have been substituted with parameters.
+    Args:
+        template : The template to substitute, e.g. "first: {{{firstparam}}} and another: {{{secondparam}}}, and a third: {{{thirdparam}}}."
+        params : dict of named parameters. Use '1' as string for paramter placeholder {{{1}}}, etc. (I recommend using named placeholders...)
+        defaultvalue : Default value to use if a parameter placeholder name is not found in the params dict.
+        keep_unmatched : If this is set to True, then only replace parameter placeholder that are found in the 'params' dict.
+            E.g. if params does not include the key 'someparam', then occurences of the
+            placeholder {{{someparam}}} in the template will NOT be replaced by defaultvalue,
+            but instead {{{someparam}}} is kept. This simulates the native behaviour of mediawiki.
+            (But note that this function does NOT account for <noinclude> or <!-- --> tags!)
+    Usage:
+        >>> template = "first: {{{firstparam}}} and another: {{{secondparam}}}";
+        >>> substitute_template_params(template, {'firstparam': '1st'}, defaultvalue='empty')
+        'first: 1st and another: empty'
+        >>> substitute_template_params(template, {'firstparam': '1st'}, keep_unmatched=True)
+        'first: 1st and another: {{{secondparam}}}'
+    """
+    pattern = r"\{{3}(.*?)\}{3}"
+    # match.group(0) returns the full match, match.group(N) returns the Nth subgroup match.
+    if keep_unmatched:
+        def repl(match):
+            return params.get(match.group(1), match.group(0))
+    else:
+        def repl(match):
+            return params.get(match.group(1), defaultvalue)
+    return re.sub(pattern, repl, template)
 
 
 class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
-
+    """
+    Command string: mediawiker_insert_text
+    When run, insert text at position.
+    If position is None, insert at current position.
+    Other commonly-used shortcuts are:
+        cursor_position = self.view.sel()[0].begin()
+        end_of_file = self.view.size()
+        start_of_file = 0
+    """
     def run(self, edit, position, text):
+        if position is None:
+            # Note: Probably better to use built-in command, "insert":
+            # { "keys": ["enter"], "command": "insert", "args": {"characters": "\n"} }
+            position = self.view.sel()[0].begin()
         self.view.insert(edit, position, text)
 
 
@@ -1840,19 +1882,19 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
 
     def run(self):
         ### Loading all relevant settings: ###
-        # title format, e.g. "MyExperiments/{expid} {exp_titledesc}". If not set, no new buffer is created.
-        self.title_fmt = mw_get_setting('mediawiker_experiments_title_fmt')
         # The base directory where the user stores his experiments, e.g. /home/me/documents/experiments/
         self.exp_basedir = mw_get_setting('mediawiker_experiments_basedir')
+        self.save_page_in_exp_folder = mw_get_setting('mediawiker_experiments_save_page_in_exp_folder', False)
         # How to format the folder, e.g. "{expid} {exp_titledesc}"
         self.exp_foldername_fmt = mw_get_setting('mediawiker_experiments_foldername_fmt')
+        # Experiments overview page: Manually lists (and links) to all experiments.
         self.experiments_overview_page = mw_get_setting('mediawiker_experiments_overview_page')
         self.experiment_overview_link_format = mw_get_setting('mediawiker_experiments_overview_link_fmt', "\n* [[{}]]")
         self.template = mw_get_setting('mediawiker_experiments_template')
-        self.template_kwargs = mw_get_setting('mediawiker_experiments_template_kwargs') # Constant args to feed to the template (Only makes sense for shared templates).
-        # If the template uses {{{0}}} as variable placeholder, we need to know in which order to inject our arguments:
-        # (If this is not specified, we assume the template uses named placeholders, and feed this with **template_kwargs)
-        self.template_args_order = mw_get_setting('mediawiker_experiments_template_args_order')
+        self.template_kwargs = mw_get_setting('mediawiker_experiments_template_kwargs', {}) # Constant args to feed to the template (Only makes sense for shared templates).
+        # self.template_args_order = mw_get_setting('mediawiker_experiments_template_args_order') # edit: I don't want to bother with template parameter order. For now, only named template parameters are supported.
+        # title format, e.g. "MyExperiments/{expid} {exp_titledesc}". If not set, no new buffer is created.
+        self.title_fmt = mw_get_setting('mediawiker_experiments_title_fmt')
         # Which substitution mode to use:
         # python-format: template.format(**kwargs), python-%: template % kwargs
         # wiki:
@@ -1874,28 +1916,40 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
 
     def bigcomment_received(self, bigcomment):
         self.bigcomment = bigcomment
+        self.on_done()
+
+
+    def on_done(self, dummy=None):
+        """
+        Called when all user input have been collected.
+        """
 
         if not any((self.expid, self.exp_titledesc)):
-            # However, if both expid and exp_title are empty, that's no good:
+            # If both expid and exp_title are empty, just abort:
             print("expid and exp_titledesc are both empty, aborting...")
             return
         # Make experiment folder, if appropriate:
         # If exp_foldername_fmt is not specified, use title_fmt (remove any '/' and whatever is before it)?
         foldername_fmt = self.exp_foldername_fmt or (self.title_fmt or '').split('/')[-1]
-        if self.exp_basedir and os.path.isdir(self.exp_basedir) and foldername_fmt:
-            self.foldername = foldername_fmt.format(expid=self.expid, exp_titledesc=self.exp_titledesc)
-            self.folderpath = os.path.join(self.exp_basedir, self.foldername)
-            os.mkdir(self.folderpath)
-            msg = "Created directory: %s" % (self.folderpath,)
+
+        if self.exp_basedir and foldername_fmt:
+            if os.path.isdir(self.exp_basedir):
+                self.foldername = foldername_fmt.format(expid=self.expid, exp_titledesc=self.exp_titledesc)
+                self.folderpath = os.path.join(self.exp_basedir, self.foldername)
+                try:
+                    os.mkdir(self.folderpath)
+                    msg = "Created directory: %s" % (self.folderpath,)
+                except FileExistsError:
+                    msg = "New exp directory already exists: %s" % (self.folderpath,)
+                except (WindowsError, OSError, IOError) as e:
+                    msg = "Error creating new exp directory '%s' :: %s" % (self.folderpath, repr(e))
+            else:
+                # We are not creating a new folder for the experiment because basedir doesn't exists:
+                msg = "Specified experiment base dir does not exists: %s" % (self.exp_basedir,)
+                self.foldername = self.folderpath = None
             print(msg)
             sublime.status_message(msg)
-        else:
-            # We are not creating a new folder for the experiment:
-            if self.exp_basedir and not os.path.isdir(self.exp_basedir):
-                msg = "Specified experiment base dir does not exists: %s" % (self.exp_basedir,)
-                print(msg)
-                sublime.status_message(msg)
-            self.foldername = self.folderpath = None
+
         # Make new view, if title_fmt is specified:
         if self.title_fmt:
             self.pagetitle = self.title_fmt.format(expid=self.expid, exp_titledesc=self.exp_titledesc)
@@ -1910,7 +1964,8 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
             #filename = mw_get_filename(self.pagetitle) # Returns a file-system compatible filename from title
             # Edit: but also pre-pends the mediawiker_file_rootdir... Better just use:
             filename = mw_strquote(self.pagetitle)
-            view_default_dir = self.folderpath or mw_get_setting('mediawiker_file_rootdir')
+            view_default_dir = self.folderpath if self.save_page_in_exp_folder and self.folderpath \
+                                               else mw_get_setting('mediawiker_file_rootdir')
             if view_default_dir:
                 exp_view.settings().set('default_dir', self.folderpath) # Update the view's working dir.
             exp_view.set_name(filename)
@@ -1939,8 +1994,10 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
             # Consider having two ways of doing templating, local (from setting) and from server.
             if os.path.isfile(self.template):
                 # User specified a local file:
+                print("Using template:", self.template)
                 with open(self.template) as fd:
                     template_content = fd.read()
+                print("Template length:", len(template_content))
                 #exp_view.run_command('mediawiker_insert_text', {'position': 0, 'text': text})
                 # Edit: Postponing all run_command to the absolute minimum, and instead building
                 # the buffer's text by without using ST:
@@ -1958,31 +2015,34 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
                 #    self.window.run_command("mediawiker_page", {"action": "mediawiker_reopen_page"})
                 #    self.window.run_command("mediawiker_page", {"action": "mediawiker_show_page", "title": self.pagetitle})
 
-        # Perform template substitution (locally):
-        from datetime import date #, datetime
-        startdate = date.today().isoformat()    # datetime.now()
-        # Several ways to format a date or datetime object as string:
-        # startdate.strftime("%Y-%m-%d"), or "{:%Y-%m-%d}".format(startdate)
-        template_vars = self.template_kwargs
-        template_vars.update({'expid': self.expid, 'startdate': startdate, 'date': startdate})
-        if self.template_args_order:
-            # The template args has an order, convert dict to ordered tuple with values:
-            template_vars = tuple(template_vars[k] for k in self.template_args_order)
-        if self.template_subst_mode == 'python-fmt':
-            # template_args must be dict or iterable:
-            if self.template_args_order:
-                template_content = template_content.format(*self.template_args)
-            else:
-                template_content = template_content.format(**self.template_args)
-        elif self.template_subst_mode == 'python-%':
-            # String interpolation: template_vars must be tuple or dict (both will work):
-            template_content = template_content % template_vars
-        elif self.template_subst_mode == 'mediawiki':
-            # Use custom wiki template variable insertion function:
-            pass
+            # Perform template substitution (locally):
+            from datetime import date #, datetime
+            startdate = date.today().isoformat()    # datetime.now()
+            # Several ways to format a date or datetime object as string:
+            # startdate.strftime("%Y-%m-%d"), or "{:%Y-%m-%d}".format(startdate)
+            #template_kwargs = self.template_kwargs or {}  # Various custom, constant user-defined template vars.
+            self.template_kwargs.update({'expid': self.expid, 'exp_titledesc': self.exp_titledesc, 'startdate': startdate, 'date': startdate})
+            if self.template_subst_mode == 'python-fmt':
+                # template_kwargs must be dict/mapping: (template_args_order no longer supported)
+                template_content = template_content.format(**self.template_kwargs)
+            elif self.template_subst_mode == 'python-%':
+                # "%s" string interpolation: template_vars must be tuple or dict (both will work):
+                template_content = template_content % self.template_kwargs
+            elif self.template_subst_mode in ('mediawiki', None) or True: # This is currently the default. Allows me to use wiki templates as local templates.
+                # Use custom wiki template variable insertion function:
+                # Get template args (defaults)
+                template_params = get_template_params_dict(template_content, defaultvalue='')
+                print("Parameters in template:", template_params)
+                template_params.update(self.template_kwargs)
+                template_content = substitute_template_params(template_content, template_params, keep_unmatched=True)
 
-        # Add template to buffer text string:
-        self.exp_buffer_text += "\n" + template_content
+            # Add template to buffer text string:
+            self.exp_buffer_text = "".join(text.strip() for text in (self.exp_buffer_text, template_content))
+
+        else:
+            msg = 'No template specified. (settings key "mediawiker_experiments_template")'
+            print(msg)
+
 
         # Finally, append self.exp_buffer_text to the view:
         exp_view.run_command('mediawiker_insert_text', {'position': exp_view.size(), 'text': self.exp_buffer_text})
@@ -2000,9 +2060,16 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
 
             # Insert link on experiments_overview_page. Can be either a local file, or a page on the wiki.
             if os.path.isfile(self.experiments_overview_page):
+                print("Adding link '%s' to file '%s'" % (link_text, self.experiments_overview_page))
                 # We have a local file, append link:
-                with open(self.experiments_overview_page, 'ab') as fd:
+                with open(self.experiments_overview_page, 'a') as fd:
+                    # In python3, there is a bigger difference between binary 'b' mode and normal (text) mode.
+                    # Do not open in binary 'b' mode when writing/appending strings. It is not supported in python 3.
+                    # If you want to write strings to files opened in binary mode, you have to cast the string to bytes / encode it:
+                    # >>> fd.write(bytes(mystring, 'UTF-8')) *or* fd.write(mystring.encode('UTF-8'))
+                    print("DEBUG: fd is: %s" % fd)
                     fd.write(link_text) # The format should include newline if desired.
+                print("Wrote: '%s' to file '%s", (link_text, self.experiments_overview_page))
             else:
                 # We have a remote page:
                 # Even if this is a page on the wiki, you should check whether that page is
@@ -2010,6 +2077,7 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
                 ## TODO: Implement specifying experiments_overview_page from server.
                 print("Using experiment_overview_page from the server is not yet supported.")
 
+        print("MediawikerNewExperimentCommand completed!")
 
 
 class MediawikerFavoritesAddCommand(sublime_plugin.WindowCommand):
