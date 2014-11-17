@@ -52,6 +52,7 @@ import sublime_plugin
 import base64
 from hashlib import md5
 import uuid
+from datetime import date
 
 # https://github.com/wbond/sublime_package_control/wiki/Sublime-Text-3-Compatible-Packages
 # http://www.sublimetext.com/docs/2/api_reference.html
@@ -1878,6 +1879,12 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
     --- and fill in template argument, as specified by mediawiker_experiments_template_args
     - TODO: How about making a link to the page and appending it to the experiments_overview_page
     This is a window command, since we might not have any views open when it is invoked.
+
+    Question: Does Sublime wait for window commands to finish, or are they dispatched to run
+    asynchronously in a separate thread? ST waits for one command to finish before a new is invoked.
+    In other words: *Commands cannot be used as functions*. That makes ST plugin development a bit convoluted.
+    It is generally best to avoid any "run_command" calls, until the end of any methods/commands.
+
     """
 
     def run(self):
@@ -1891,30 +1898,31 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
         self.experiments_overview_page = mw_get_setting('mediawiker_experiments_overview_page')
         self.experiment_overview_link_format = mw_get_setting('mediawiker_experiments_overview_link_fmt', "\n* [[{}]]")
         self.template = mw_get_setting('mediawiker_experiments_template')
-        self.template_kwargs = mw_get_setting('mediawiker_experiments_template_kwargs', {}) # Constant args to feed to the template (Only makes sense for shared templates).
-        # self.template_args_order = mw_get_setting('mediawiker_experiments_template_args_order') # edit: I don't want to bother with template parameter order. For now, only named template parameters are supported.
+        # Constant args to feed to the template (Mostly for shared templates).
+        self.template_kwargs = mw_get_setting('mediawiker_experiments_template_kwargs', {})
         # title format, e.g. "MyExperiments/{expid} {exp_titledesc}". If not set, no new buffer is created.
         self.title_fmt = mw_get_setting('mediawiker_experiments_title_fmt')
         # Which substitution mode to use:
-        # python-format: template.format(**kwargs), python-%: template % kwargs
-        # wiki:
+        # "python-format" = template.format(**kwargs), "python-%" = template % kwargs, "mediawiki" = substitute_template_params(template, kwargs)
         self.template_subst_mode = mw_get_setting('mediawiker_experiments_template_subst_mode')
-        #sublime.active_window().show_input_panel('Wiki image prefix (min %s):' % self.image_prefix_min_lenght, '', self.show_list, None, None)
-
-        # Building the experiment's buffer text incrementally by hand, inserting at the end.
+        # Building the experiment's buffer text incrementally by hand, inserting it into the view when complete.
         self.exp_buffer_text = ""
 
+        # Start input chain:
         self.window.show_input_panel('Experiment ID:', '', self.expid_received, None, None)
 
     def expid_received(self, expid):
+        """ Saves expid input and asks the user for titledesc. """
         self.expid = expid # empty string is OK.
         self.window.show_input_panel('Exp title desc:', '', self.exp_title_received, None, None)
 
     def exp_title_received(self, exp_titledesc):
+        """ Saves titledesc input and asks the user for bigcomment text. """
         self.exp_titledesc = exp_titledesc # empty string is OK.
         self.window.show_input_panel('Big page comment:', self.expid, self.bigcomment_received, None, None)
 
     def bigcomment_received(self, bigcomment):
+        """ Saves bigcomment input and invokes on_done. """
         self.bigcomment = bigcomment
         self.on_done()
 
@@ -1923,22 +1931,24 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
         """
         Called when all user input have been collected.
         """
+        # Ways to format a date/datetime as string: startdate.strftime("%Y-%m-%d"), or "{:%Y-%m-%d}".format(startdate)
+        startdate = date.today().isoformat()    # datetime.now()
 
         if not any((self.expid, self.exp_titledesc)):
             # If both expid and exp_title are empty, just abort:
             print("expid and exp_titledesc are both empty, aborting...")
             return
-        # Make experiment folder, if appropriate:
+
+        ## 1. Make experiment folder, if appropriate: ##
         # If exp_foldername_fmt is not specified, use title_fmt (remove any '/' and whatever is before it)?
         foldername_fmt = self.exp_foldername_fmt or (self.title_fmt or '').split('/')[-1]
-
         if self.exp_basedir and foldername_fmt:
             if os.path.isdir(self.exp_basedir):
                 self.foldername = foldername_fmt.format(expid=self.expid, exp_titledesc=self.exp_titledesc)
                 self.folderpath = os.path.join(self.exp_basedir, self.foldername)
                 try:
                     os.mkdir(self.folderpath)
-                    msg = "Created directory: %s" % (self.folderpath,)
+                    msg = "Created new experiment directory: %s" % (self.folderpath,)
                 except FileExistsError:
                     msg = "New exp directory already exists: %s" % (self.folderpath,)
                 except (WindowsError, OSError, IOError) as e:
@@ -1950,77 +1960,46 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
             print(msg)
             sublime.status_message(msg)
 
-        # Make new view, if title_fmt is specified:
+        ## 2. Make new view, if title_fmt is specified: ##
         if self.title_fmt:
             self.pagetitle = self.title_fmt.format(expid=self.expid, exp_titledesc=self.exp_titledesc)
             self.view = exp_view = sublime.active_window().new_file() # Make a new file/buffer/view
             self.window.focus_view(exp_view) # exp_view is now the window's active_view
-            # Uh, here it would be nice to be able to just invoke:
-            # Actually, use mediawiker_reopen_page -- is transmuted to 'mediawiker_show_page',
-            # but doesn't do all the "maybe new tab and input a title to load, please" things.
-            #self.window.run_command("mediawiker_page", {"action": "mediawiker_reopen_page", "title": self.pagetitle})
-            # Edit: No need to run any server commands, unless when need to do template substitution
-            # I do need to change the base dir:
-            #filename = mw_get_filename(self.pagetitle) # Returns a file-system compatible filename from title
-            # Edit: but also pre-pends the mediawiker_file_rootdir... Better just use:
             filename = mw_strquote(self.pagetitle)
             view_default_dir = self.folderpath if self.save_page_in_exp_folder and self.folderpath \
                                                else mw_get_setting('mediawiker_file_rootdir')
             if view_default_dir:
                 exp_view.settings().set('default_dir', self.folderpath) # Update the view's working dir.
             exp_view.set_name(filename)
+            # Manually set the syntax file to use (since the view does not have a file extension)
             self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
         else:
             # We are not creating a new view, use the active view:
             self.view = exp_view = self.window.active_view()
 
-        # Add template to view/buffer:
-        # Use mediawiker_insert_text command
-        # Need to modify MediawikerInsertBigTextCommand to accept initial text, optionally not asking for any:
-        #exp_view.run_command("mediawiker_insert_big_comment", {"text": self.expid, "prompt_msg": "Insert big comment:"})
-        exp_figlet_comment = get_figlet_text(self.bigcomment) # Makes the big figlet text
-        self.exp_buffer_text += adjust_figlet_comment(exp_figlet_comment, self.foldername or self.bigcomment) # Adjusts the figlet to produce a comment
-        # Question: Does Sublime wait for window commands to finish, or are they dispatched to
-        # run in asynchronously in a separate thread?
-        # -- ST waits for one command to finish before a new is invoked. But that in particular means that,
-        # in the example above, exp_view.run_command isn't run before *this* command has finished.
-        # In other words: *Commands cannot be used as functions*.
-        # Wow... that makes ST plugin development really convoluted...
-        # Maybe it would be better to avoid any call to run_command, and just
-        # create the new buffer by hand?
+        ## 3. Create big comment text: ##
+        if self.bigcomment:
+            exp_figlet_comment = get_figlet_text(self.bigcomment) # Makes the big figlet text
+            self.exp_buffer_text += adjust_figlet_comment(exp_figlet_comment, self.foldername or self.bigcomment) # Adjusts the figlet to produce a comment
 
+        ## 4. Generate template : ##
         if self.template:
-            # Insert experiment template and do template substition, if appropriate:
-            # Consider having two ways of doing templating, local (from setting) and from server.
+            # Load the template: #
             if os.path.isfile(self.template):
                 # User specified a local file:
                 print("Using template:", self.template)
                 with open(self.template) as fd:
                     template_content = fd.read()
                 print("Template length:", len(template_content))
-                #exp_view.run_command('mediawiker_insert_text', {'position': 0, 'text': text})
-                # Edit: Postponing all run_command to the absolute minimum, and instead building
-                # the buffer's text by without using ST:
             else:
                 # Assume template is a page on the server:
                 # This will load the page into the window's active_view (asking for password, if required):
-                raise NotImplementedError("Obtaining templates from the server is not yet implemented...")
                 # We have to manually obtain the template and do variable substitution
                 #self.window.run_command("mediawiker_validate_connection_params", {"title": self.pagetitle, "action": 'mediawiker_show_page'})
-                #if self.template_subst:
-                #    # Run with exp_view?
-                #    self.window.run_command("mediawiker_page", {"action": "mediawiker_publish_page", "title": self.pagetitle})
-                #    # Use reopen_page or show_page? They are really the same,
-                #    # except reopen_page uses the view's name to produce a title.
-                #    self.window.run_command("mediawiker_page", {"action": "mediawiker_reopen_page"})
-                #    self.window.run_command("mediawiker_page", {"action": "mediawiker_show_page", "title": self.pagetitle})
+                raise NotImplementedError("Obtaining templates from the server is not yet implemented...")
 
-            # Perform template substitution (locally):
-            from datetime import date #, datetime
-            startdate = date.today().isoformat()    # datetime.now()
-            # Several ways to format a date or datetime object as string:
-            # startdate.strftime("%Y-%m-%d"), or "{:%Y-%m-%d}".format(startdate)
-            #template_kwargs = self.template_kwargs or {}  # Various custom, constant user-defined template vars.
+            # Perform template substitution (locally): #
+            # Update kwargs with user input and today's date:
             self.template_kwargs.update({'expid': self.expid, 'exp_titledesc': self.exp_titledesc, 'startdate': startdate, 'date': startdate})
             if self.template_subst_mode == 'python-fmt':
                 # template_kwargs must be dict/mapping: (template_args_order no longer supported)
@@ -2028,27 +2007,25 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
             elif self.template_subst_mode == 'python-%':
                 # "%s" string interpolation: template_vars must be tuple or dict (both will work):
                 template_content = template_content % self.template_kwargs
-            elif self.template_subst_mode in ('mediawiki', None) or True: # This is currently the default. Allows me to use wiki templates as local templates.
+            elif self.template_subst_mode in ('mediawiki', 'wiki', None) or True: # This is currently the default. Allows me to use wiki templates as local templates.
                 # Use custom wiki template variable insertion function:
-                # Get template args (defaults)
-                template_params = get_template_params_dict(template_content, defaultvalue='')
-                print("Parameters in template:", template_params)
-                template_params.update(self.template_kwargs)
+                # Get template args (defaults)  -- edit: I just use keep_unmatched=True.
+                #template_params = get_template_params_dict(template_content, defaultvalue='')
+                #print("Parameters in template:", template_params)
+                #template_params.update(self.template_kwargs)
                 template_content = substitute_template_params(template_content, template_params, keep_unmatched=True)
 
             # Add template to buffer text string:
             self.exp_buffer_text = "".join(text.strip() for text in (self.exp_buffer_text, template_content))
 
         else:
-            msg = 'No template specified. (settings key "mediawiker_experiments_template")'
-            print(msg)
+            print('No template specified (settings key "mediawiker_experiments_template").')
 
 
-        # Finally, append self.exp_buffer_text to the view:
+        ## 6. Append self.exp_buffer_text to the view: ##
         exp_view.run_command('mediawiker_insert_text', {'position': exp_view.size(), 'text': self.exp_buffer_text})
-        #exp_view.run_command("mediawiker_insert_big_comment", {"text": self.expid, "prompt_msg": "Insert big comment:"})
 
-        # Add a link to the experiment page on experiments_overview_page (local file):
+        ## 7. Add a link to experiments_overview_page (local file): ##
         if self.experiments_overview_page:
             # Generate a link to this experiment:
             if self.pagetitle:
@@ -2058,7 +2035,8 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
                 link = "{}#{}".format(mw_get_title(), self.foldername.replace(' ', '_'))
                 link_text = self.experiment_overview_link_format.format(link)
 
-            # Insert link on experiments_overview_page. Can be either a local file, or a page on the wiki.
+            # Insert link on experiments_overview_page. Currently, this must be a local file.
+            # (We just edit the file on disk and let ST pick up the change if the file is opened in any view.)
             if os.path.isfile(self.experiments_overview_page):
                 print("Adding link '%s' to file '%s'" % (link_text, self.experiments_overview_page))
                 # We have a local file, append link:
@@ -2067,28 +2045,29 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
                     # Do not open in binary 'b' mode when writing/appending strings. It is not supported in python 3.
                     # If you want to write strings to files opened in binary mode, you have to cast the string to bytes / encode it:
                     # >>> fd.write(bytes(mystring, 'UTF-8')) *or* fd.write(mystring.encode('UTF-8'))
-                    print("DEBUG: fd is: %s" % fd)
                     fd.write(link_text) # The format should include newline if desired.
                 print("Wrote: '%s' to file '%s", (link_text, self.experiments_overview_page))
             else:
-                # We have a remote page:
-                # Even if this is a page on the wiki, you should check whether that page is
-                # already open in Sublime.
+                # User probably specified a page on the wiki. (This is not yet supported.)
+                # Even if this is a page on the wiki, you should check whether that page is already opened in Sublime.
                 ## TODO: Implement specifying experiments_overview_page from server.
                 print("Using experiment_overview_page from the server is not yet supported.")
 
-        print("MediawikerNewExperimentCommand completed!")
+        print("MediawikerNewExperimentCommand completed!\n")
 
 
 class MediawikerFavoritesAddCommand(sublime_plugin.WindowCommand):
-
+    """ Add current page to the favorites list. Command string: mediawiker_favorites_add  (WindowCommand) """
     def run(self):
         title = mw_get_title()
         mw_save_mypages(title=title, storage_name='mediawiker_favorites')
 
 
 class MediawikerFavoritesOpenCommand(sublime_plugin.WindowCommand):
-
+    """
+    Open page from the favorites list.
+    Command string: mediawiker_favorites_open (WindowCommand)
+    """
     def run(self):
         self.window.run_command("mediawiker_page_list", {"storage_name": 'mediawiker_favorites'})
 
