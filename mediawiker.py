@@ -300,27 +300,43 @@ def mw_get_page_text(site, title):
             return False, ''
 
 
-def mw_strunquote(string_value):
+def mw_strquote(string_value, quote_plus=None, safe=None):
     """
+    str quote and unquote:
+        quoting will replace reserved characters (: ; ? @ & = + $ , /) with encoded versions,
+        unquoting will reverse the process.
+        The parameter safe='/' specified which characters not to touch.
+    quote_plus will further replace spaces with '+' and defaults to safe='' (i.e. all reserved are replaced.)
+    Note that the 'safe' argument only applies when quoting; unquoting will always convert all.
+
     Consider using (un)quote_plus variants.
     This will escape '/' to '%2F' and replace space ' ' with '+' rather than '%20'.
     """
-    quote_plus = mw_get_setting("mediawiki_quote_plus", False)
-    if pythonver >= 3:
-        return urllib.parse.unquote_plus(string_value) if quote_plus else urllib.parse.unquote(string_value)
-    else:
-        return urllib.unquote_plus(string_value.encode('utf-8')) if quote_plus \
-            else urllib.unquote(string_value.encode('ascii')).decode('utf-8')
-
-
-def mw_strquote(string_value):
     # Support for "quote_plus":
-    quote_plus = mw_get_setting("mediawiki_quote_plus", False)
+    if quote_plus is None:
+        quote_plus = mw_get_setting("mediawiki_quote_plus", False)
+    if safe is None:
+        safe = mw_get_setting("mediawiker_quote_safe", '' if quote_plus else '/')
     if pythonver >= 3:
-        return urllib.parse.quote_plus(string_value) if quote_plus else urllib.parse.quote(string_value)
+        quote = urllib.parse.quote_plus if quote_plus else urllib.parse.quote
+        return quote(string_value, safe=safe)
     else:
-        return urllib.quote(string_value.encode('utf-8')) if quote_plus \
-            else urllib.quote(string_value.encode('utf-8'))
+        quote = urllib.quote_plus if quote_plus else urllib.quote
+        return quote(string_value.encode('utf-8'), safe=safe)
+
+
+def mw_strunquote(string_value, quote_plus=None):
+    """ Reverses the effect of mw_strquote() """
+    if quote_plus is None:
+        quote_plus = mw_get_setting("mediawiki_quote_plus", False)
+    if pythonver >= 3:
+        unquote = urllib.parse.unquote_plus if quote_plus else urllib.parse.unquote
+        return unquote(string_value)
+    else:
+        # Python 2 urllib does not handle unicode. However, is it really needed to encode/decode?
+        unquote = urllib.unquote_plus if quote_plus else urllib.quote
+        return unquote(string_value.encode('ascii')).decode('utf-8')
+
 
 
 def mw_pagename_clear(pagename):
@@ -355,7 +371,6 @@ def mw_save_mypages(title, storage_name='mediawiker_pagelist'):
 
     # my_pages = mediawiker_pagelist[site_name_active]
     my_pages = mediawiker_pagelist.setdefault(site_name_active, [])
-
 
     if my_pages:
         if title in my_pages:
@@ -427,6 +442,7 @@ def mw_get_category(category_full_name):
 
 def mw_get_page_url(page_name=''):
     """ Returns URL of page with title of the active document, or <page_name> if given. """
+
     site_name_active = mw_get_setting('mediawiki_site_active')
     site_list = mw_get_setting('mediawiki_site')
     site = site_list[site_name_active]["host"]
@@ -438,7 +454,9 @@ def mw_get_page_url(page_name=''):
     proto = 'https' if is_https else 'http'
     pagepath = site_list[site_name_active]["pagepath"]
     if not page_name:
-        page_name = mw_strquote(mw_get_title())
+        # For URLs, we need to quote spaces to '%20' rather than '+' and not replace '/' with '%2F'
+        # Thus, force use of quote rather than quote_plus and use safe='/'.
+        page_name = mw_strquote(mw_get_title(), quote_plus=False, safe='/')
     if page_name:
         return '%s://%s%s%s' % (proto, site, pagepath, page_name)
     else:
@@ -926,6 +944,7 @@ class MediawikerShowInternalLinksCommand(sublime_plugin.TextCommand):
             sublime.set_timeout(lambda: self.view.window().run_command("mediawiker_page", {"action": "mediawiker_show_page", "title": self.items[self.selected]}), 1)
         elif index == 2:
             url = mw_get_page_url(self.items[self.selected])
+            print("Opening URL:", url)
             webbrowser.open(url)
 
 
@@ -1050,6 +1069,7 @@ class MediawikerOpenPageInBrowserCommand(sublime_plugin.WindowCommand):
     def run(self):
         url = mw_get_page_url()
         if url:
+            print("Opening URL:", url)
             webbrowser.open(url)
         else:
             sublime.status_message('Can\'t open page with empty title')
