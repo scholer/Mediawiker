@@ -651,12 +651,30 @@ class MediawikerOpenPageCommand(sublime_plugin.WindowCommand):
 
 
 class MediawikerReopenPageCommand(sublime_plugin.WindowCommand):
-
+    """
+    Reopen the current views's page (in current view).
+    Will overwrite current view's buffer content.
+    Command string: mediawiker_reopen_page
+    """
     def run(self):
         # Yeah, this is kind of a weird one. MediawikerPageCommand will intercept
         # 'mediawiker_reopen_page' action and use 'mediawiker_show_page' instead.
         # So, no - it is not an infinite loop, although it would seem like it ;-)
         self.window.run_command("mediawiker_page", {"action": "mediawiker_reopen_page"})
+
+class MediawikerAskReopenPageCommand(sublime_plugin.WindowCommand):
+    """
+    Reopen the current views's page (in current view).
+    Will ask for confirmation before invoking the normal reopen page command.
+    Command string: mediawiker_ask_reopen_page
+    """
+    def run(self):
+        do_reopen = sublime.ok_cancel_dialog("Re-open page? (This will overwrite existing content in current view --Rasmus)")
+        if do_reopen:
+            print("Reopening page, do_reopen =", do_reopen)
+            self.window.run_command("mediawiker_page", {"action": "mediawiker_reopen_page"})
+        else:
+            print("Re-open page cancelled, do_reopen =", do_reopen)
 
 
 class MediawikerPostPageCommand(sublime_plugin.WindowCommand):
@@ -2033,7 +2051,7 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
                 #template_params = get_template_params_dict(template_content, defaultvalue='')
                 #print("Parameters in template:", template_params)
                 #template_params.update(self.template_kwargs)
-                template_content = substitute_template_params(template_content, template_params, keep_unmatched=True)
+                template_content = substitute_template_params(template_content, self.template_kwargs, keep_unmatched=True)
 
             # Add template to buffer text string:
             self.exp_buffer_text = "".join(text.strip() for text in (self.exp_buffer_text, template_content))
@@ -2120,8 +2138,18 @@ class MediawikerLoad(sublime_plugin.EventListener):
     """
     What is this and how is this used?
     And what does mediawiker_is_here and mediawiker_wiki_instead_editor mean?
+    This is an EventListener subclass. Like the other sublime_plugin classes, ST will take care of
+    instantiation etc. It automatically binds a series of methods to ST events. For instance:
+        on_activated is automatically invoked when a view is activated.
     """
     def on_activated(self, view):
+        """
+        Invoked whenever a view is activated.
+        Used to set Mediawiker conditional settings (if we have a wiki page).
+        The mediawiker_is_here setting key, for instance, is used in the "context-aware" binding
+        of F5 to reopen page:
+            "keys": ["f5"], "command": "mediawiker_reopen_page", "context": [{"key": "setting.mediawiker_is_here", "operand": true}]
+        """
         if view.settings().get('syntax').endswith('Mediawiker/Mediawiki.tmLanguage'):
             # Mediawiki mode
             view.settings().set('mediawiker_is_here', True)
