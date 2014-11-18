@@ -669,7 +669,7 @@ class MediawikerAskReopenPageCommand(sublime_plugin.WindowCommand):
     Command string: mediawiker_ask_reopen_page
     """
     def run(self):
-        do_reopen = sublime.ok_cancel_dialog("Re-open page? (This will overwrite existing content in current view --Rasmus)")
+        do_reopen = sublime.ok_cancel_dialog("Re-open page? (Note: This will overwrite existing content in current view.)")
         if do_reopen:
             print("Reopening page, do_reopen =", do_reopen)
             self.window.run_command("mediawiker_page", {"action": "mediawiker_reopen_page"})
