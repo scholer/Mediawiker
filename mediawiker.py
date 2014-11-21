@@ -1662,6 +1662,8 @@ class MediawikerBatchUploadCommand(sublime_plugin.WindowCommand):
     Windows command alias for MediawikerUploadBatchViewCommand.
     Command string: mediawiker_batch_upload
 
+    Note: Does it make sense to run this without an active view?
+    Windows Commands should always be able to run even if no view is open.
     """
     def run(self):
         self.window.active_view().run_command("mediawiker_upload_batch_view")
@@ -1674,8 +1676,9 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
     Batch upload command.
     Reads filepaths from the current view's buffer and uploads them.
     The current view's buffer must be in the format of:
-        <filepath>, <destname>, <file description>, e.g.
-        /home/me/picture.jpg, xmas_tree.jpg, A picture of a christmas tree.
+        <filepath>, <destname>, <file description>, <link_options>, <link_caption>
+    e.g.
+        /home/me/picture.jpg, xmas_tree.jpg, A picture of a christmas tree, 500px|framed, X-mas tree!
     If destname is empty or missing, the file's filename is used.
     If description is missing, an empty string is used.
     If tab ('\t') is present, this is used as field delimiter, otherwise comma (',') is used.
@@ -1702,7 +1705,7 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
     def parseUploadBatchText(self, text, fieldsep=None):
         """
         Parse text and return list of 3-string tuples,
-        each tuple is (<filepath>, <destname>, <filedescription>)
+        each tuple is (<filepath>, <destname>, <filedescription>, <link_options>, <link_caption>)
         """
         # Ensure that we have '\n' as line terminator.
         linesep = '\n'
@@ -1754,6 +1757,8 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
         link_fmt = image_link_options.pop('link_fmt')
         filedescription_as_caption = image_link_options.pop('filedescription_as_caption')
 
+        self.appendText("\nUploading %s files...:\n(Each line is interpreted as: filepath, destname, filedesc, link_options, link_caption\n" % len(self.files))
+
         for row in self.files:
             filepath = row[0]
             destname = row[1] if len(row) > 1 and row[1] else os.path.basename(filepath)
@@ -1770,7 +1775,6 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
                 if v:
                     file_image_link_options[k] = v
 
-            self.appendText("\nUploading files...:\n(Each line is interpreted as: filepath, destname, filedesc, link_options, link_caption\n")
             try:
                 with open(filepath, 'rb') as f:
                     print("\nAttempting to upload file %s to destination '%s' (description: '%s')...\n" % (filepath, destname, filedesc))
