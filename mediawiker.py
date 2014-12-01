@@ -2011,7 +2011,8 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
             view_default_dir = self.folderpath if self.save_page_in_exp_folder and self.folderpath \
                                                else mw_get_setting('mediawiker_file_rootdir')
             if view_default_dir:
-                exp_view.settings().set('default_dir', self.folderpath) # Update the view's working dir.
+                print("Setting view's default dir to:", view_default_dir)
+                exp_view.settings().set('default_dir', view_default_dir) # Update the view's working dir.
             exp_view.set_name(filename)
             # Manually set the syntax file to use (since the view does not have a file extension)
             self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
@@ -2088,7 +2089,7 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
                     # If you want to write strings to files opened in binary mode, you have to cast the string to bytes / encode it:
                     # >>> fd.write(bytes(mystring, 'UTF-8')) *or* fd.write(mystring.encode('UTF-8'))
                     fd.write(link_text) # The format should include newline if desired.
-                print("Wrote: '%s' to file '%s", (link_text, self.experiments_overview_page))
+                print("Appended %s chars to file '%s" % (len(link_text), self.experiments_overview_page))
             else:
                 # User probably specified a page on the wiki. (This is not yet supported.)
                 # Even if this is a page on the wiki, you should check whether that page is already opened in Sublime.
