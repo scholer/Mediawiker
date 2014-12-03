@@ -274,6 +274,11 @@ def mw_get_connect(password=''):
         else:
             sublime.status_message('HTTP connection failed: %s' % e[1])
             raise Exception('HTTP connection failed.')
+    except mwclient.HTTPRedirectError as e:
+        # if redirect to '/login.php' page:
+        sublime.status_message('Connection to server failed. If you are logging in with an open_id session cookie, it may have expired. (HTTPRedirectError)')
+        raise(e)
+
 
     # if login is not empty - auth required
     if username:
@@ -283,6 +288,9 @@ def mw_get_connect(password=''):
         except mwclient.LoginError as e:
             sublime.status_message('Login failed: %s' % e[1]['result'])
             return
+    elif inject_cookies:
+        sublime.status_message('Connected using cookies: %s' % ", ".join(inject_cookies.keys()))
+        print('Connected using cookies: %s' % ", ".join(inject_cookies.keys()))
     else:
         sublime.status_message('Connection without authorization')
     return sitecon
