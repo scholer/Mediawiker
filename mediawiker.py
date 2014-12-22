@@ -274,6 +274,11 @@ def mw_get_connect(password=''):
         else:
             sublime.status_message('HTTP connection failed: %s' % e[1])
             raise Exception('HTTP connection failed.')
+    except mwclient.HTTPRedirectError as e:
+        # if redirect to '/login.php' page:
+        sublime.status_message('Connection to server failed. If you are logging in with an open_id session cookie, it may have expired. (HTTPRedirectError)')
+        raise(e)
+
 
     # if login is not empty - auth required
     if username:
@@ -283,6 +288,9 @@ def mw_get_connect(password=''):
         except mwclient.LoginError as e:
             sublime.status_message('Login failed: %s' % e[1]['result'])
             return
+    elif inject_cookies:
+        sublime.status_message('Connected using cookies: %s' % ", ".join(inject_cookies.keys()))
+        print('Connected using cookies: %s' % ", ".join(inject_cookies.keys()))
     else:
         sublime.status_message('Connection without authorization')
     return sitecon
@@ -1672,8 +1680,8 @@ class MediawikerBatchUploadCommand(sublime_plugin.WindowCommand):
 
 class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
     """
-    Command string: mediawiker_upload_batch_view
-    Batch upload command.
+    == Batch upload command ==
+    (Command string: mediawiker_upload_batch_view)
     Reads filepaths from the current view's buffer and uploads them.
     The current view's buffer must be in the format of:
         <filepath>, <destname>, <file description>, <link_options>, <link_caption>
@@ -1686,9 +1694,11 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
     Image links are printed to the current view. The output can be customized by two means:
     globally, using the mediawiker_insert_image_options settings key (value should be a dict), or
     per-view, by marking the first line in the view with '#' followed by an info dict in json format, e.g.
-        # {"options": "frameless|center|500px", caption="RS123 TEM Images", "link_fmt": "[[Has image::File:%(destname)s|%(options)s|%(caption)s]]", "imageformat": "frameless", "imagesize": "500px"}
+        # {"options": "frameless|center|500px", caption="RS123 TEM Images", "link_fmt": "[[Has image::File:%(destname)s|%(options)s|%(caption)s]]"}
     (remember, JSON format requires double quotes ("key", not 'key') when loading from strings)
-    As indicated above, both the mediawiker_insert_image_options item and the first #-marked JSON line
+    Note: I used to also have , "imageformat": "frameless", "imagesize": "500px", but these are now deprechated in
+    favor of a single combined "options" as used above.
+    As indicated above, both the mediawiker_insert_image_options settings item and the first #-marked JSON line
     should both specify a dict with one or more of the following items:
         "link_fmt" : controls the overall link format.
         "options" and "caption" are both inserted by string interpolation with link_fmt.
@@ -1734,13 +1744,23 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
             edit = self.edit
         self.view.insert(edit, self.view.size(), text)
 
+    def print_help(self):
+        msg = self.__doc__
+        self.appendText(msg)
+        print(msg)
+
     def run(self, edit, password='', title=''):
         """ This is the entry point where the command is invoked. """
         self.password = password
         # self.view = sublime.active_view() # This is set by the sublime_plugin.TextCommand's __init__ method.
-        self.text = self.view.substr(sublime.Region(0, self.view.size()))
-        self.files, view_image_link_options = self.parseUploadBatchText(self.text)
         self.edit = edit
+        self.text = self.view.substr(sublime.Region(0, self.view.size()))
+        if not self.text.strip():
+            ## A blank buffer means that the user probably wants help. print help and return.
+            self.print_help()
+            return
+
+        self.files, view_image_link_options = self.parseUploadBatchText(self.text)
         # Not sure how to handle this in case of macros/repeats...
 
         sitecon = mw_get_connect(self.password)
