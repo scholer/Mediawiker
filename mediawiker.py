@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# pylint: disable=W0142,C0302
+# pylint: disable=W0142,C0302,C0301,C0103
 # W0142="* or ** magic"
 # C0302="Too many lines in module"
 # pylint: disable=R0914,R0912,R0915
@@ -53,11 +53,46 @@ import base64
 from hashlib import md5
 import uuid
 from datetime import date
+from functools import partial
 
 # https://github.com/wbond/sublime_package_control/wiki/Sublime-Text-3-Compatible-Packages
 # http://www.sublimetext.com/docs/2/api_reference.html
 # http://www.sublimetext.com/docs/3/api_reference.html
 # sublime.message_dialog
+
+## Set up logging:
+import logging
+logger = logging.getLogger(__name__)
+def init_logging(args=None, prefix="Mediawiker"):
+    """
+    Set up standard logging system:
+    Comments include other examples of how to set up logging,
+    both a streamhandler (output to console per default) and a filehandler.
+    """
+    # Examples of different log formats:
+    # loguserfmt = format of log displayed to the user; logfilefmt = format of log messages written to logfile.
+    loguserfmt = "%(asctime)s %(levelname)-5s %(name)20s:%(lineno)-4s%(funcName)20s() %(message)s"
+    #logfilefmt = '%(asctime)s %(levelname)-6s - %(name)s:%(lineno)s - %(funcName)s() - %(message)s'
+    # logdatefmt = "%Y%m%d-%H:%M:%S" # "%Y%m%d-%Hh%Mm%Ss" - for file output
+    logtimefmt = "%H:%M:%S" # For output to user in console
+    #logfiledir = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'logs')
+    #if not os.path.exists(logfiledir):
+    #    os.mkdir(logfiledir)
+    #if argsns.logtofile:
+    #    logfilepath = argsns.logtofile
+    #else:
+    #    logfilename = "{}.log".format(prefix)
+    #    logfilepath = os.path.join(logfiledir, logfilename)
+    #logging.root.setLevel(logging.DEBUG)
+    #logstreamhandler = logging.StreamHandler()
+    #logging.root.addHandler(logstreamhandler)
+    #logstreamformatter = logging.Formatter(loguserfmt, logtimefmt)
+    #logstreamhandler.setFormatter(logstreamformatter)
+    # basicConfig only has an effect if no logging system have been set up:
+    logging.basicConfig(level=logging.DEBUG, format=loguserfmt, datefmt=logtimefmt)    # filename='example.log',
+init_logging()
+
+
 
 ### Add pyfiglet library to path: ###
 # (pyfiglet is used to print big ascii letters and is used by e.g. MediawikerInsertBigTodoTextCommand)
@@ -86,7 +121,7 @@ st_version = 2
 if int(sublime.version()) > 3000:
     st_version = 3
 else:
-    FileExistsError = WindowsError
+    FileExistsError = WindowsError  # pylint: disable=W0622
 
 # import custom ssl module on linux
 # thnx to wbond and his SFTP module!
@@ -128,16 +163,63 @@ if pythonver >= 3:
     # else:
     #     from . import mwclient
     from . import mwclient
+    from .mwclient import errors
+    from .lib.cache_decorator import cached_property
 else:
     import mwclient
+    from mwclient import errors
 
 CATEGORY_NAMESPACE = 14  # category namespace number
 IMAGE_NAMESPACE = 6  # image namespace number
 TEMPLATE_NAMESPACE = 10  # template namespace number
 
 
+### Primitive attempt at saving connection between calls.
+### Making a new mw_get_connect every time seems in-efficient...
+
+class SiteconnMgr():
+
+    def __init__(self, password=None):
+        self.password = password
+        self.conn = None
+
+    @cached_property(ttl=120)
+    def Siteconn(self):
+        """
+        cached_property caches values using
+        self._cache[propname] = (value, last_update)
+        To expire use: del siteconmgr.Siteconn
+        """
+        return mw_get_connect(self.password)
+
+    def reset_conn(self, password=None):
+        self.del_conn()
+        return self.Siteconn
+
+    def del_conn(self, ):
+        del self.Siteconn
+
+# Module-level site manager:
+sitemgr = SiteconnMgr()
+
+
+
+## Uh... Is there really no in-memory settings register???
+## Nope, doesn't seem so. At least, the 'default' plugins (only font.py) does it the same way,
+## load_settings, ..., save_settings.
+
+
+def mw_save_settings():
+    sublime.save_settings('Mediawiker.sublime-settings')
+
+
 def mw_get_setting(key, default_value=None):
-    """ Returns setting for key <key>, defaulting to default_value if not present (default: None) """
+    """
+    Returns setting for key <key>, defaulting to default_value if not present (default: None)
+    Note that the returned object seems to be a copy;
+    changes, even to mutable entries, cannot simply be persisted with sublime.save_settings.
+    You have to keep a reference to the original settings object and make changes to this.
+    """
     settings = sublime.load_settings('Mediawiker.sublime-settings')
     return settings.get(key, default_value)
 
@@ -243,8 +325,8 @@ def mw_get_connect(password=''):
         # CookieJar is a subclass of dict. I've changed it's __init__ so you can initialize it as a dict.
         # connection.post(<host>, ...) finds the host in the connection pool,
         sitecon = mwclient.Site(host=host, path=path, inject_cookies=inject_cookies)
-    except mwclient.HTTPStatusError as exc:
-        e = exc.args if pythonver >= 3 else exc
+    except errors.HTTPStatusError as exc:
+        e = exc.args if pythonver >= 3 else exc     # pylint: disable=W0621
         is_use_http_auth = site_params.get('use_http_auth', False)
         http_auth_login = site_params.get('http_auth_login', '')
         http_auth_password = site_params.get('http_auth_password', '')
@@ -274,10 +356,10 @@ def mw_get_connect(password=''):
         else:
             sublime.status_message('HTTP connection failed: %s' % e[1])
             raise Exception('HTTP connection failed.')
-    except mwclient.HTTPRedirectError as e:
+    except errors.HTTPRedirectError as exc:
         # if redirect to '/login.php' page:
         sublime.status_message('Connection to server failed. If you are logging in with an open_id session cookie, it may have expired. (HTTPRedirectError)')
-        raise(e)
+        raise exc
 
 
     # if login is not empty - auth required
@@ -285,7 +367,7 @@ def mw_get_connect(password=''):
         try:
             sitecon.login(username=username, password=password, domain=domain)
             sublime.status_message('Logon successfully.')
-        except mwclient.LoginError as e:
+        except errors.LoginError as e:
             sublime.status_message('Login failed: %s' % e[1]['result'])
             return
     elif inject_cookies:
@@ -497,7 +579,7 @@ def get_template_params_dict(template, defaultvalue=''):
     """
     parameters = get_template_params(template)
     parameters = dict((split[0], split[1] if len(split) > 1 else defaultvalue) for split in
-                  (param.split('|') for param in parameters)) # Python 2.6 does not support dict comprehensions.
+                      (param.split('|') for param in parameters)) # Python 2.6 does not support dict comprehensions.
     return parameters
 
 # This should be a function; not a method. ("self" isn't used).
@@ -523,6 +605,15 @@ def get_template_params_str(text):
     """
     params_dict = get_template_params_dict(text)
     return ''.join('|%s=%s\n' % (name, defval) for name, defval in sorted(params_dict.items()))
+
+def make_template_example_usage(template):
+    """
+    TODO: Add test for this and other simple functions.
+    """
+    params = get_template_params_dict(template)
+    template_name = mw_get_filename(template)
+    params_str = "\n".join("| {0}=Example {0}".format(key) for key in sorted(params.keys()))
+    return "Usage:\n{{ %s\n%s\n}}" % (template_name, params_str)
 
 def substitute_template_params(template, params, defaultvalue='', keep_unmatched=False):
     """
@@ -554,6 +645,77 @@ def substitute_template_params(template, params, defaultvalue='', keep_unmatched
     return re.sub(pattern, repl, template)
 
 
+class MediawikerTestInsertTextCommand(sublime_plugin.WindowCommand):
+    """
+    Test command to see how text commands work...
+    Command string: mediawiker_test_insert_text
+
+    Well, it seems text commands are executed (as per the print output),
+    but the window is unresponsive and does not actually print the text
+    until all commands are finished.
+    """
+    def appendText(self, text):
+        for k in range(600):
+            for j in range(1000):
+                x = k*j     # pylint: disable=W0612
+        self.window.active_view().run_command('mediawiker_insert_text', {'position': None, 'text': text+'\n'})
+
+    def run(self, dummy=None):
+        #view = self.window.active_view()
+        self.window.active_view().run_command('mediawiker_test_insert_textt')
+        #for i in range(10):
+        #    print("starting window cmd iteration no. %s " % i)
+        #    msg = "text_cmd_insert no. %s" % i
+        #    print(msg)
+        #    #sublime.set_timeout(partial(self.appendText, msg), 0)
+        #    # Using async means that it will update. Otherwise, it will hold until all is complete before updating.
+        #    sublime.set_timeout_async(partial(self.appendText, msg), 0)
+        #    print("Sleeping 1 second...")
+        #    for k in range(100):
+        #        for j in range(100):
+        #            x = k*j
+        #    #time.sleep(1)
+        #    print("window cmd iteration no. %s complete." % i)
+
+class MediawikerTestInsertTexttCommand(sublime_plugin.TextCommand):
+    """
+    Test command to see how text commands work...
+    Command string: mediawiker_test_insert_textt
+
+    Well, it seems text commands are executed (as per the print output),
+    but the window is unresponsive and does not actually print the text
+    until all commands are finished.
+    """
+    def appendText(self, edit, text):
+        """
+        Using set_timeout(_async) to call own command's methods with an edit token
+        and trying to use it for making edits will invariantly produce a
+        ValueError: Edit objects may not be used after the TextCommand's run method has returned
+        """
+        for k in range(600):
+            for j in range(1000):
+                x = k*j  # pylint: disable=W0612
+        position = self.view.size()
+        #self.view.insert(edit, position, text)
+        self.view.run_command('mediawiker_insert_text', {'position': position, 'text': text+'\n'})
+        #self.view.run_command('mediawiker_upload_single_file', kwargs)
+
+    def run(self, edit, dummy=None):
+        for i in range(10):
+            print("starting window cmd iteration no. %s " % i)
+            msg = "text_cmd_insert no. %s" % i
+            print(msg)
+            #sublime.set_timeout(partial(self.appendText, msg), 0)
+            # Using async means that it will update. Otherwise, it will hold until all is complete before updating.
+            sublime.set_timeout_async(partial(self.appendText, edit, msg), 0)
+            #print("Sleeping 1 second...")
+            #for k in range(100):
+            #    for j in range(100):
+            #        x = k*j
+            #time.sleep(1)
+            print("window cmd iteration no. %s complete." % i)
+
+
 class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
     """
     Command string: mediawiker_insert_text
@@ -564,12 +726,14 @@ class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
         end_of_file = self.view.size()
         start_of_file = 0
     """
-    def run(self, edit, position, text):
+    def run(self, edit, position=None, text=''):
         if position is None:
             # Note: Probably better to use built-in command, "insert":
             # { "keys": ["enter"], "command": "insert", "args": {"characters": "\n"} }
             position = self.view.sel()[0].begin()
+            #position = self.view.size()
         self.view.insert(edit, position, text)
+        print("Inserted %s chars at pos %s" % (len(text), position))
 
 
 class MediawikerPageCommand(sublime_plugin.WindowCommand):
@@ -904,7 +1068,7 @@ class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
                 self.page.save(self.current_text, summary=summary.strip(), minor=mark_as_minor)
             else:
                 sublime.status_message('You have not rights to edit this page')
-        except mwclient.EditError as e:
+        except errors.EditError as e:
             sublime.status_message('Can\'t publish page %s (%s)' % (self.title, e))
         sublime.status_message('Wiki page %s was successfully published to wiki.' % (self.title))
         mw_save_mypages(self.title)
@@ -1735,7 +1899,8 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
         lines = [line for line in lines if line[0] != '#']
         if fieldsep is None:
             fieldsep = '\t' if '\t' in lines[0] else ','
-        files = [[field.strip() for field in line.split(fieldsep)] for line in lines]
+        # Also stripping leading and trailing quotation marks:
+        files = [[field.strip("\"' \t") for field in line.split(fieldsep)] for line in lines]
         print("DEBUG: info=%s, files=%s" % (info, files))
         return files, info
 
@@ -1763,7 +1928,7 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
         self.files, view_image_link_options = self.parseUploadBatchText(self.text)
         # Not sure how to handle this in case of macros/repeats...
 
-        sitecon = mw_get_connect(self.password)
+        #sitecon = mw_get_connect(self.password)
         # dict used to change how images are inserted.
         image_link_options = {'caption': '', 'options': '', 'filedescription_as_caption': False,
                               'link_fmt': '\n[[File:%(destname)s|%(options)s|%(caption)s]]\n'}
@@ -1777,7 +1942,7 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
         link_fmt = image_link_options.pop('link_fmt')
         filedescription_as_caption = image_link_options.pop('filedescription_as_caption')
 
-        self.appendText("\nUploading %s files...:\n(Each line is interpreted as: filepath, destname, filedesc, link_options, link_caption\n" % len(self.files))
+        self.appendText("\n\nUploading %s files...:\n(Each line is interpreted as: filepath, destname, filedesc, link_options, link_caption\n" % len(self.files))
 
         for row in self.files:
             filepath = row[0]
@@ -1795,42 +1960,93 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
                 if v:
                     file_image_link_options[k] = v
 
-            try:
-                with open(filepath, 'rb') as f:
-                    print("\nAttempting to upload file %s to destination '%s' (description: '%s')...\n" % (filepath, destname, filedesc))
-                    upload_info = sitecon.upload(f, destname, filedesc)
-                    print("MediawikerUploadBatchViewCommand(): upload_info:", upload_info)
-                if 'warnings' in upload_info:
-                    msg = "Warnings while uploading file '%s': %s \nIt is likely that this file has not been properly uploaded." % (destname, upload_info.get('warnings'))
-                else:
-                    msg = 'File %s successfully uploaded to wiki as %s' % (filepath, destname)
-                sublime.status_message(msg)
-                print(msg)
-                image_link = link_fmt % file_image_link_options
-                print(image_link)
-                self.appendText(image_link)
-            except IOError as e:
-                sublime.status_message('Upload IO error: "%s" for file "%s"' % (e, filepath))
-                msg = "\n--- Could not upload file %s; IOError '%s'" % (filepath, e)
-                print(msg)
-                self.appendText(msg)
-            except ValueError as e:
-                # This might happen in predata['token'] = image.get_token('edit'), if e.g. title is invalid.
-                msg = "\n--- Could not upload file %s; ValueError '%s' -- likely invalid destination filename/title, '%s'" % (filepath, e, destname)
-                sublime.status_message('Upload error "%s", invalid destination file name/title "%s" for file "%s"' % (e, filepath, destname))
-                self.appendText(msg)
-                print(msg)
-            except Exception as e:
-                # Does this include login/login-cookie errors?
-                # Should I break the for-loop in this case?
-                print("UPLOAD ERROR:", repr(e))
-                #import traceback
-                #traceback.print_exc()
-                sublime.message_dialog('Upload error: %s' % e)
-                msg = "\n--- Other EXCEPTION '%s' while uploading file %s to destination '%s'" % (repr(e), filepath, destname)
-                self.appendText(msg)
-                print(msg)
-                break
+            print("Queued %s for upload" % os.path.basename(filepath))
+            # In Sublime Text 3, set_timeout_async is thread safe, so using cached sitemgr shouldn't be an issue.
+            sublime.set_timeout_async(partial(self.uploadafile, filepath, destname, filedesc, link_fmt, file_image_link_options), 0)
+
+
+    def uploadafile(self, filepath, destname, filedesc, link_fmt, file_image_link_options): #**kwargs):
+        """
+        I can't get this to work:
+            sublime.set_timeout_async(partial(self.view.run_command, 'mediawiker_upload_a_file', kwargs), 0)
+        so I wrap it with this method.
+        kwargs must include:
+        """
+        kwargs = {'filepath': filepath, 'destname': destname, 'filedesc': filedesc, 'link_fmt': link_fmt,
+                  #'sitecon': sitecon,
+                  #'sitecon': None,
+                  'file_image_link_options': file_image_link_options}
+        print("kwargs: %s" % (kwargs, ))
+        # sublime's run_command only takes python native data types; you cannot include e.g. a sitecon object :-\
+        self.view.run_command('mediawiker_upload_single_file', kwargs)
+        #self.view.run_command('mediawiker_insert_text', {'position': None, 'text': destname+'\n'})
+
+
+class MediawikerUploadSingleFileCommand(sublime_plugin.TextCommand):
+    """
+    mediawiker_upload_single_file
+    Upload a single file.
+    Meant to be run as part of batch upload with set_timeout_async,
+    so the UI does not become unresponsive.
+
+    Oh, by the way, if you ever have a "TypeError: Value required" when invoking
+    run_command(...) - make sure that the command you are running have the *Command
+    ending and are otherwise correctly named and invokable.
+    OH, also -- it seems you can only pass "simple" values to commands - lists/dicts with text,
+    numbers and so on. Trying to pass e.g. a "sitecon" mwclient Site connection object
+    will raise the error above. Sigh.
+    """
+
+    def appendText(self, text, edit=None):
+        """ Convenience appendText method """
+        if edit is None:
+            edit = self.edit
+        self.view.insert(edit, self.view.size(), text)
+
+
+    def run(self, edit, filepath, destname, filedesc, link_fmt, file_image_link_options):
+        """ Main run """
+        self.edit = edit
+        sitecon = sitemgr.Siteconn
+        print("mediawiker_upload_single_file run invoked with edit: %s and destname '%s'" % (edit, destname))
+        #return
+        try:
+            with open(filepath, 'rb') as f:
+                print("\nAttempting to upload file %s to destination '%s' (description: '%s')...\n" % (filepath, destname, filedesc))
+                upload_info = sitecon.upload(f, destname, filedesc)
+                print("MediawikerUploadSingleFileCommand(): upload_info:", upload_info)
+            if 'warnings' in upload_info:
+                msg = "Warnings while uploading file '%s': %s \nIt is likely that this file has not been properly uploaded." % (destname, upload_info.get('warnings'))
+            else:
+                msg = 'File %s successfully uploaded to wiki as %s' % (filepath, destname)
+            sublime.status_message(msg)
+            print(msg)
+            image_link = link_fmt % file_image_link_options
+            print("Link:", image_link)
+            self.appendText(image_link+'\n')
+        except IOError as e:
+            sublime.status_message('Upload IO error: "%s" for file "%s"' % (e, filepath))
+            msg = "\n--- Could not upload file %s; IOError '%s'" % (filepath, e)
+            print(msg)
+            self.appendText(msg)
+        except ValueError as e:
+            # This might happen in predata['token'] = image.get_token('edit'), if e.g. title is invalid.
+            msg = "\n--- Could not upload file %s; ValueError '%s' -- likely invalid destination filename/title, '%s'" % (filepath, e, destname)
+            sublime.status_message('Upload error "%s", invalid destination file name/title "%s" for file "%s"' % (e, filepath, destname))
+            self.appendText(msg)
+            print(msg)
+        except Exception as e:
+            # Does this include login/login-cookie errors?
+            # Should I break the for-loop in this case?
+            print("UPLOAD ERROR:", repr(e))
+            #import traceback
+            #traceback.print_exc()
+            sublime.message_dialog('Upload error: %s' % e)
+            msg = "\n--- Other EXCEPTION '%s' while uploading file %s to destination '%s'" % (repr(e), filepath, destname)
+            self.appendText(msg)
+            print(msg)
+
+
 
 
 # Re-factoring out so I can use it elsewhere as well:
@@ -2133,6 +2349,60 @@ class MediawikerFavoritesOpenCommand(sublime_plugin.WindowCommand):
     """
     def run(self):
         self.window.run_command("mediawiker_page_list", {"storage_name": 'mediawiker_favorites'})
+
+
+def get_site_params(name=None):
+    if name is None:
+        name = mw_get_setting('mediawiki_site_active')
+    sites = mw_get_setting('mediawiki_site')
+    return sites[name]
+
+def get_login_cookie(cookie_key='open_id_session_id', site_name=None, default=None):
+    site_params = get_site_params(site_name)
+    try:
+        return site_params['cookies'][cookie_key]
+    except KeyError:
+        return default
+
+def set_login_cookie(value, cookie_key='open_id_session_id', site_name=None):
+    site_params = get_site_params(site_name)
+    site_params['cookies'][cookie_key] = value
+    print("Updated site_params:")
+    print(site_params)
+    # mw_save_settings()
+    # sublime.save_settings('Mediawiker.sublime-settings')
+    # Above doesn't seem to work, attempting manual:
+    # Uhm... what is the settings object exactly? Is it a simple dict or something more stupid?
+    # Indeed. It is a sublime.Settings object, which is just a thin wrapper around
+    # sublime_api.settings_*(self.settings_id, ...) functions
+    settings = sublime.load_settings('Mediawiker.sublime-settings')
+    if site_name is None:
+        site_name = settings.get('mediawiki_site_active')
+    sites = settings.get('mediawiki_site')
+    print("Re-loaded site_params:")
+    print(sites[site_name])
+    sites[site_name]['cookies'][cookie_key] = value
+    settings.set('mediawiki_site', sites)
+    sublime.save_settings('Mediawiker.sublime-settings')
+
+
+
+class MediawikerSetLoginCookie(sublime_plugin.WindowCommand):
+    """
+    Set login cookie.
+    Command string: mediawiker_set_login_cookie (WindowCommand)
+    """
+    def run(self):
+        current_cookie = get_login_cookie(default='')
+        # show_input_panel(caption, initial_text, on_done, on_change, on_cancel)
+        self.window.show_input_panel('Set login cookie:', current_cookie, self.on_done, None, None)
+    def on_done(self, text):
+        if not text:
+            msg = "No cookie input..."
+        else:
+            set_login_cookie(text)
+            msg = "Login cookie set :)"
+        print(msg)
 
 
 class MediawikerSavePageCommand(sublime_plugin.WindowCommand):
