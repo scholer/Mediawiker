@@ -4,14 +4,13 @@
 # pylint: disable=W0142,C0302,C0301,C0103
 # W0142="* or ** magic"
 # C0302="Too many lines in module"
+## Too many branches, variables and lines in function:
 # pylint: disable=R0914,R0912,R0915
-# Too many branches, variables and lines in function
+## ToDos, missing docstrings:
 # pylint: disable=W0511,C0111
-## ToDos, missing docstrings,
-# pylint: disable=W0611
-## Unused imports,
-# pylint: disable=F0401,E1101,W0232,R0903,R0201,W0613,W0201
+# pylintx: disable=W0611   ## Unused imports,
 ## Unable to import, no __init__, no member, too few lines, method-could-be-function, unused argument, attribute defined outside __init__
+# pylint: disable=F0401,E1101,W0232,R0903,R0201,W0613,W0201
 
 """
 
@@ -34,127 +33,35 @@ Mediawikier settings:
     "mediawiker_files_extension": ["mediawiki", "wiki", "wikipedia", ""],   # File extensions recognized and allowed.
 
     "mediawiker_mark_as_minor": false,      #
+
+References:
+# https://github.com/wbond/sublime_package_control/wiki/Sublime-Text-3-Compatible-Packages
+# http://www.sublimetext.com/docs/2/api_reference.html
+# http://www.sublimetext.com/docs/3/api_reference.html
+
 """
 
 
 from __future__ import print_function
-import sys
 import os
-from os.path import splitext, basename, dirname, join
-import imp
-pythonver = sys.version_info[0]
-
+import sys
 import webbrowser
-import urllib
 import re
 import sublime
 import sublime_plugin
-import base64
-from hashlib import md5
-import uuid
 from datetime import date
 from functools import partial
 
-# https://github.com/wbond/sublime_package_control/wiki/Sublime-Text-3-Compatible-Packages
-# http://www.sublimetext.com/docs/2/api_reference.html
-# http://www.sublimetext.com/docs/3/api_reference.html
-# sublime.message_dialog
 
-## Set up logging:
-import logging
-logger = logging.getLogger(__name__)
-def init_logging(args=None, prefix="Mediawiker"):
-    """
-    Set up standard logging system:
-    Comments include other examples of how to set up logging,
-    both a streamhandler (output to console per default) and a filehandler.
-    """
-    # Examples of different log formats:
-    # loguserfmt = format of log displayed to the user; logfilefmt = format of log messages written to logfile.
-    loguserfmt = "%(asctime)s %(levelname)-5s %(name)20s:%(lineno)-4s%(funcName)20s() %(message)s"
-    #logfilefmt = '%(asctime)s %(levelname)-6s - %(name)s:%(lineno)s - %(funcName)s() - %(message)s'
-    # logdatefmt = "%Y%m%d-%H:%M:%S" # "%Y%m%d-%Hh%Mm%Ss" - for file output
-    logtimefmt = "%H:%M:%S" # For output to user in console
-    #logfiledir = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'logs')
-    #if not os.path.exists(logfiledir):
-    #    os.mkdir(logfiledir)
-    #if argsns.logtofile:
-    #    logfilepath = argsns.logtofile
-    #else:
-    #    logfilename = "{}.log".format(prefix)
-    #    logfilepath = os.path.join(logfiledir, logfilename)
-    #logging.root.setLevel(logging.DEBUG)
-    #logstreamhandler = logging.StreamHandler()
-    #logging.root.addHandler(logstreamhandler)
-    #logstreamformatter = logging.Formatter(loguserfmt, logtimefmt)
-    #logstreamhandler.setFormatter(logstreamformatter)
-    # basicConfig only has an effect if no logging system have been set up:
-    logging.basicConfig(level=logging.DEBUG, format=loguserfmt, datefmt=logtimefmt)    # filename='example.log',
-init_logging()
-
-
-
-### Add pyfiglet library to path: ###
-# (pyfiglet is used to print big ascii letters and is used by e.g. MediawikerInsertBigTodoTextCommand)
-# pwaller's original pyfiglet uses pkg_resources module,
-# which is not available in Sublime Text, so must use '-rs' version
-# from https://github.com/scholer/pyfiglet
-# Zip all files to 'pyfiglet-rs.zip', and ensure that the zipfiles structure matches this:
-# pyfiglet-rs.zip/setup.py
-# pyfiglet-rs.zip/pyfiglet/version.py
-# pyfiglet-rs.zip/pyfiglet/fonts
-# Then move pyfiglet-rs.zip to the directory containing this file.
-try:
-    # Use up-to-date library, if available:
-    import pyfiglet
-except ImportError:
-    # Use included library:
-    PYFIGLET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib', 'pyfiglet.zip')
-    sys.path.append(PYFIGLET_PATH)
-    try:
-        import pyfiglet
-        print("Imported pyfiglet from local zip library.")
-    except ImportError:
-        print("Could not import local pyfiglet from zip; big text will not be available.")
-
-st_version = 2
 if int(sublime.version()) > 3000:
     st_version = 3
 else:
+    st_version = 2
     FileExistsError = WindowsError  # pylint: disable=W0622
 
-# import custom ssl module on linux
-# thnx to wbond and his SFTP module!
-# http://sublimetext.userecho.com/topic/50801-bundle-python-ssl-module/
 
-arch_lib_path = None
-if sublime.platform() == 'linux':
-    arch_lib_path = join(dirname(__file__), 'lib', 'st%d_linux_%s' % (st_version, sublime.arch()))
-    print('Mediawiker: enabling custom linux ssl module')
-    for ssl_ver in ['1.0.0', '10', '0.9.8']:
-        lib_path = join(arch_lib_path, 'libssl-' + ssl_ver)
-        sys.path.append(lib_path)
-        try:
-            import _ssl
-            print('Mediawiker: successfully loaded _ssl module for libssl.so.%s' % ssl_ver)
-            break
-        except (ImportError) as e:
-            print('Mediawiker: _ssl module import error - ' + str(e))
-    if '_ssl' in sys.modules:
-        try:
-            if sys.version_info < (3,):
-                plat_lib_path = join(sublime.packages_path(), 'Mediawiker', 'lib', 'st2_linux')
-                m_info = imp.find_module('ssl', [plat_lib_path])
-                m = imp.load_module('ssl', *m_info)
-            else:
-                import ssl
-                print('Mediawiker: ssl loaded!')
-        except (ImportError) as e:
-            print('Mediawiker: ssl module import error - ' + str(e))
-
-# after ssl mwclient import
-# in httpmw.py http_compat will be reloaded
-if pythonver >= 3:
+# Load local modules, depending on PYTHONVER = sys.version_info[0]
+if sys.version_info[0] >= 3:
     # NOTE: load from package, not used now because custom ssl
     # current_dir = dirname(__file__)
     # if '.sublime-package' in current_dir:
@@ -162,578 +69,55 @@ if pythonver >= 3:
     #     import mwclient
     # else:
     #     from . import mwclient
-    from . import mwclient
     from .mwclient import errors
-    from .lib.cache_decorator import cached_property
+    from . import mwutils as mw
 else:
-    import mwclient
     from mwclient import errors
+    import mwutils as mw
 
+
+# Initialize logging system (only kicks in if not initialized already...)
+mw.init_logging()
+
+
+# Define constants:
 CATEGORY_NAMESPACE = 14  # category namespace number
 IMAGE_NAMESPACE = 6  # image namespace number
 TEMPLATE_NAMESPACE = 10  # template namespace number
 
 
-### Primitive attempt at saving connection between calls.
-### Making a new mw_get_connect every time seems in-efficient...
-
-class SiteconnMgr():
-
-    def __init__(self, password=None):
-        self.password = password
-        self.conn = None
-
-    @cached_property(ttl=120)
-    def Siteconn(self):
-        """
-        cached_property caches values using
-        self._cache[propname] = (value, last_update)
-        To expire use: del siteconmgr.Siteconn
-        """
-        return mw_get_connect(self.password)
-
-    def reset_conn(self, password=None):
-        self.del_conn()
-        return self.Siteconn
-
-    def del_conn(self, ):
-        del self.Siteconn
 
 # Module-level site manager:
-sitemgr = SiteconnMgr()
+sitemgr = mw.SiteconnMgr()
 
 
 
-## Uh... Is there really no in-memory settings register???
-## Nope, doesn't seem so. At least, the 'default' plugins (only font.py) does it the same way,
-## load_settings, ..., save_settings.
+##### WINDOW COMMANDS #######
 
+##      ## #### ##    ## ########   #######  ##      ##     ######  ##     ## ########   ######
+##  ##  ##  ##  ###   ## ##     ## ##     ## ##  ##  ##    ##    ## ###   ### ##     ## ##    ##
+##  ##  ##  ##  ####  ## ##     ## ##     ## ##  ##  ##    ##       #### #### ##     ## ##
+##  ##  ##  ##  ## ## ## ##     ## ##     ## ##  ##  ##    ##       ## ### ## ##     ##  ######
+##  ##  ##  ##  ##  #### ##     ## ##     ## ##  ##  ##    ##       ##     ## ##     ##       ##
+##  ##  ##  ##  ##   ### ##     ## ##     ## ##  ##  ##    ##    ## ##     ## ##     ## ##    ##
+ ###  ###  #### ##    ## ########   #######   ###  ###      ######  ##     ## ########   ######
 
-def mw_save_settings():
-    sublime.save_settings('Mediawiker.sublime-settings')
-
-
-def mw_get_setting(key, default_value=None):
+class MediawikerTestCmdCommand(sublime_plugin.WindowCommand):
     """
-    Returns setting for key <key>, defaulting to default_value if not present (default: None)
-    Note that the returned object seems to be a copy;
-    changes, even to mutable entries, cannot simply be persisted with sublime.save_settings.
-    You have to keep a reference to the original settings object and make changes to this.
+    Used for quick testing inside sublime.
+    Command string mediawiker_test_a
     """
-    settings = sublime.load_settings('Mediawiker.sublime-settings')
-    return settings.get(key, default_value)
-
-
-def mw_set_setting(key, value):
-    """ Set setting for key <key>, to value <value>. """
-    settings = sublime.load_settings('Mediawiker.sublime-settings')
-    settings.set(key, value)
-    sublime.save_settings('Mediawiker.sublime-settings')
-
-
-def mw_enco(value):
-    ''' for md5 hashing string must be encoded '''
-    if pythonver >= 3:
-        return value.encode('utf-8')
-    return value
-
-
-def mw_deco(value):
-    ''' for py3 decode from bytes '''
-    if pythonver >= 3:
-        return value.decode('utf-8')
-    return value
-
-
-
-
-def mw_get_digest_header(header, username, password, path):
-    """ Return an auth header for use in the "Digest" authorization realm. """
-    HEADER_ATTR_PATTERN = r'([\w\s]+)=\"?([^".]*)\"?'
-    METHOD = "POST"
-    header_attrs = {}
-    hprms = header.split(', ')
-    for hprm in hprms:
-        params = re.findall(HEADER_ATTR_PATTERN, hprm)
-        for param in params:
-            header_attrs[param[0]] = param[1]
-
-    cnonce = str(uuid.uuid4())  # random clients string..
-    nc = '00000001'
-    realm = header_attrs['Digest realm']
-    nonce = header_attrs['nonce']
-    qop = header_attrs.get('qop', 'auth')
-    digest_uri = header_attrs.get('uri', path)
-    algorithm = header_attrs.get('algorithm', 'MD5')
-    # TODO: ?
-    # opaque = header_attrs.get('opaque', '')
-    entity_body = ''  # TODO: ?
-
-    if algorithm == 'MD5':
-        ha1 = md5(mw_enco('%s:%s:%s' % (username, realm, password))).hexdigest()
-    elif algorithm == 'MD5-Sess':
-        ha1 = md5(mw_enco('%s:%s:%s' % (md5(mw_enco('%s:%s:%s' % (username, realm, password))), nonce, cnonce))).hexdigest()
-
-    if 'auth-int' in qop:
-        ha2 = md5(mw_enco('%s:%s:%s' % (METHOD, digest_uri, md5(entity_body)))).hexdigest()
-    elif 'auth' in qop:
-        ha2 = md5(mw_enco('%s:%s' % (METHOD, digest_uri))).hexdigest()
-
-    if 'auth' in qop or 'auth-int' in qop:
-        response = md5(mw_enco('%s:%s:%s:%s:%s:%s' % (ha1, nonce, nc, cnonce, qop, ha2))).hexdigest()
-    else:
-        response = md5(mw_enco('%s:%s:%s' % (ha1, nonce, ha2))).hexdigest()
-
-    # auth = 'username="%s", realm="%s", nonce="%s", uri="%s", response="%s", opaque="%s", qop="%s", nc=%s, cnonce="%s"' % (username, realm, nonce, digest_uri, response, opaque, qop, nc, cnonce)
-    auth = 'username="%s", realm="%s", nonce="%s", uri="%s", response="%s", qop="%s", nc=%s, cnonce="%s"' % (username, realm, nonce, digest_uri, response, qop, nc, cnonce)
-    return auth
-
-
-def mw_get_connect(password=''):
-    """ Returns a mwclient connection to the active MediaWiki site. """
-    DIGEST_REALM = 'Digest realm'
-    BASIC_REALM = 'Basic realm'
-    site_name_active = mw_get_setting('mediawiki_site_active')
-    site_list = mw_get_setting('mediawiki_site')
-    site_params = site_list[site_name_active]
-    site = site_params['host']
-    path = site_params['path']
-    username = site_params['username']
-    domain = site_params['domain']
-    is_https = site_params.get('https', False)
-    if is_https:
-        sublime.status_message('Trying to get https connection to https://%s' % site)
-    host = site if not is_https else ('https', site)
-    proxy_host = site_params.get('proxy_host', '')
-    if proxy_host:
-        # proxy_host format is host:port, if only host defined, 80 will be used
-        host = proxy_host if not is_https else ('https', proxy_host)
-        proto = 'https' if is_https else 'http'
-        path = '%s://%s%s' % (proto, site, path)
-        sublime.message_dialog('Connection with proxy: %s %s' % (host, path))
-    # If the mediawiki instance has OpenID login (e.g. google), it is easiest to
-    # login by injecting the open_id_session_id cookie into the session's cookie jar:
-    inject_cookies = site_params.get('cookies')
-
-    try:
-        # It would be nice to be able to pass in old cookies, but that is not part of the original design.
-        # we have:
-        # <Site>sitecon . <HTTPPool> connection [list of ((scheme, hostname), <HTTP(S)PersistentConnection> connection) tuples]
-        # <HTTP(S)PersistentConnection> connection._conn = <httplib.HTTP(S)Connection>
-        # connection.cookies is a dict[host] = <CookieJar> , either individual or shared pool (if pool is provided to connection init)
-        # Note: For cookies[host], host is hostname string e.g. "lab.wyss.harvard.edu"; not ('https', 'harvard.edu') tuple.
-        # CookieJar is a subclass of dict. I've changed it's __init__ so you can initialize it as a dict.
-        # connection.post(<host>, ...) finds the host in the connection pool,
-        sitecon = mwclient.Site(host=host, path=path, inject_cookies=inject_cookies)
-    except errors.HTTPStatusError as exc:
-        e = exc.args if pythonver >= 3 else exc     # pylint: disable=W0621
-        is_use_http_auth = site_params.get('use_http_auth', False)
-        http_auth_login = site_params.get('http_auth_login', '')
-        http_auth_password = site_params.get('http_auth_password', '')
-        if e[0] == 401 and is_use_http_auth and http_auth_login:
-            http_auth_header = e[1].getheader('www-authenticate')
-            custom_headers = {}
-            realm = None
-            if http_auth_header.startswith(BASIC_REALM):
-                realm = BASIC_REALM
-            elif http_auth_header.startswith(DIGEST_REALM):
-                realm = DIGEST_REALM
-
-            if realm is not None:
-                if realm == BASIC_REALM:
-                    auth = mw_deco(base64.standard_b64encode(mw_enco('%s:%s' % (http_auth_login, http_auth_password))))
-                    custom_headers = {'Authorization': 'Basic %s' % auth}
-                elif realm == DIGEST_REALM:
-                    auth = mw_get_digest_header(http_auth_header, http_auth_login, http_auth_password, '%sapi.php' % path)
-                    custom_headers = {'Authorization': 'Digest %s' % auth}
-
-                if custom_headers:
-                    sitecon = mwclient.Site(host=host, path=path, custom_headers=custom_headers)
+    def run(self, action=None, textcommand=True, kwargs=None):
+        if True:
+            if kwargs is None:
+                kwargs = {}
+            print("Running test command: '%s'" % action)
+            if textcommand:
+                self.window.active_view().run_command(action, kwargs)
             else:
-                error_message = 'HTTP connection failed: Unknown realm.'
-                sublime.status_message(error_message)
-                raise Exception(error_message)
+                self.window.run_command(action, kwargs)
         else:
-            sublime.status_message('HTTP connection failed: %s' % e[1])
-            raise Exception('HTTP connection failed.')
-    except errors.HTTPRedirectError as exc:
-        # if redirect to '/login.php' page:
-        sublime.status_message('Connection to server failed. If you are logging in with an open_id session cookie, it may have expired. (HTTPRedirectError)')
-        raise exc
-
-
-    # if login is not empty - auth required
-    if username:
-        try:
-            sitecon.login(username=username, password=password, domain=domain)
-            sublime.status_message('Logon successfully.')
-        except errors.LoginError as e:
-            sublime.status_message('Login failed: %s' % e[1]['result'])
-            return
-    elif inject_cookies:
-        sublime.status_message('Connected using cookies: %s' % ", ".join(inject_cookies.keys()))
-        print('Connected using cookies: %s' % ", ".join(inject_cookies.keys()))
-    else:
-        sublime.status_message('Connection without authorization')
-    return sitecon
-
-
-def mw_get_page_text(site, title):
-    denied_message = 'You have not rights to edit this page. Click OK button to view its source.'
-    page = site.Pages[title]
-    if page.can('edit'):
-        return True, page.edit()
-    else:
-        if sublime.ok_cancel_dialog(denied_message):
-            return False, page.edit()
-        else:
-            return False, ''
-
-
-def mw_strquote(string_value, quote_plus=None, safe=None):
-    """
-    str quote and unquote:
-        quoting will replace reserved characters (: ; ? @ & = + $ , /) with encoded versions,
-        unquoting will reverse the process.
-        The parameter safe='/' specified which characters not to touch.
-    quote_plus will further replace spaces with '+' and defaults to safe='' (i.e. all reserved are replaced.)
-    Note that the 'safe' argument only applies when quoting; unquoting will always convert all.
-
-    Consider using (un)quote_plus variants.
-    This will escape '/' to '%2F' and replace space ' ' with '+' rather than '%20'.
-    """
-    # Support for "quote_plus":
-    if quote_plus is None:
-        quote_plus = mw_get_setting("mediawiki_quote_plus", False)
-    if safe is None:
-        safe = mw_get_setting("mediawiker_quote_safe", '' if quote_plus else '/')
-    if pythonver >= 3:
-        quote = urllib.parse.quote_plus if quote_plus else urllib.parse.quote
-        return quote(string_value, safe=safe)
-    else:
-        quote = urllib.quote_plus if quote_plus else urllib.quote
-        return quote(string_value.encode('utf-8'), safe=safe)
-
-
-def mw_strunquote(string_value, quote_plus=None):
-    """ Reverses the effect of mw_strquote() """
-    if quote_plus is None:
-        quote_plus = mw_get_setting("mediawiki_quote_plus", False)
-    if pythonver >= 3:
-        unquote = urllib.parse.unquote_plus if quote_plus else urllib.parse.unquote
-        return unquote(string_value)
-    else:
-        # Python 2 urllib does not handle unicode. However, is it really needed to encode/decode?
-        unquote = urllib.unquote_plus if quote_plus else urllib.quote
-        return unquote(string_value.encode('ascii')).decode('utf-8')
-
-
-
-def mw_pagename_clear(pagename):
-    """ Return clear pagename if page-url was set instead of.."""
-    site_name_active = mw_get_setting('mediawiki_site_active')
-    site_list = mw_get_setting('mediawiki_site')
-    site = site_list[site_name_active]['host']
-    pagepath = site_list[site_name_active]['pagepath']
-    try:
-        pagename = mw_strunquote(pagename)
-    except UnicodeEncodeError:
-        pass
-    except Exception:
-        pass
-
-    if site in pagename:
-        pagename = re.sub(r'(https?://)?%s%s' % (site, pagepath), '', pagename)
-
-    sublime.status_message('Page name was cleared.')
-    return pagename
-
-
-def mw_save_mypages(title, storage_name='mediawiker_pagelist'):
-
-    title = title.replace('_', ' ')  # for wiki '_' and ' ' are equal in page name
-    pagelist_maxsize = mw_get_setting('mediawiker_pagelist_maxsize')
-    site_name_active = mw_get_setting('mediawiki_site_active')
-    mediawiker_pagelist = mw_get_setting(storage_name, {})
-
-    # if site_name_active not in mediawiker_pagelist:
-    #     mediawiker_pagelist[site_name_active] = []
-
-    # my_pages = mediawiker_pagelist[site_name_active]
-    my_pages = mediawiker_pagelist.setdefault(site_name_active, [])
-
-    if my_pages:
-        if title in my_pages:
-            # for sorting - remove *before* trimming size, not after.
-            my_pages.remove(title)
-        while len(my_pages) >= pagelist_maxsize:
-            my_pages.pop(0)
-
-    my_pages.append(title)
-    mw_set_setting(storage_name, mediawiker_pagelist)
-
-
-def mw_get_title():
-    """
-    Returns page title of active tab from view_name or from file_name.
-    Be careful to make sure that the round-trip:
-        make_filename -> mw_get_title() ->  make_filename()
-    Maps 1:1.
-    """
-
-    view_name = sublime.active_window().active_view().name()
-    if view_name:
-        print("DEBUG: view_name: ", view_name, "mw_strunquote(view_name)=", mw_strunquote(view_name))
-        return mw_strunquote(view_name)
-    else:
-        # haven't view.name, try to get from view.file_name (without extension)
-        file_name = sublime.active_window().active_view().file_name()
-        if file_name:
-            wiki_extensions = mw_get_setting('mediawiker_files_extension')
-            title, ext = splitext(basename(file_name))
-            if ext[1:] in wiki_extensions and title:
-                print("DEBUG: rewriting filename_stem %s -> %s" % (title, mw_strunquote(title)))
-                return mw_strunquote(title)
-            else:
-                sublime.status_message('Unauthorized file extension for mediawiki publishing. Check your configuration for correct extensions.')
-                return ''
-    return ''
-
-def mw_get_filename(title):
-    """
-    Return a file-system friendly/compatible filename from title.
-    """
-    file_rootdir = mw_get_setting('mediawiker_file_rootdir', None)
-    if not file_rootdir:
-        return mw_strquote(title)
-    use_subdirs = mw_get_setting('mediawiker_use_subdirs', False)
-    if use_subdirs:
-        filename = os.path.join(file_rootdir, *(mw_strquote(item) for item in os.path.split(title)))
-        filedir = os.path.dirname(filename)
-        if not os.path.isdir(filedir):
-            print("Making dir:", filedir)
-            os.makedirs(filedir)
-        return filename
-    return os.path.join(file_rootdir, mw_strquote(title))
-    # If you use subdirs, then you should also adjust mw_get_title() so that is can accomodate:
-
-
-def mw_get_hlevel(header_string, substring):
-    return int(header_string.count(substring) / 2)
-
-
-def mw_get_category(category_full_name):
-    ''' From full category name like "Category:Name" return tuple (Category, Name) '''
-    if ':' in category_full_name:
-        return category_full_name.split(':')
-    else:
-        return 'Category', category_full_name
-
-
-def mw_get_page_url(page_name=''):
-    """ Returns URL of page with title of the active document, or <page_name> if given. """
-
-    site_name_active = mw_get_setting('mediawiki_site_active')
-    site_list = mw_get_setting('mediawiki_site')
-    site = site_list[site_name_active]["host"]
-
-    is_https = False
-    if 'https' in site_list[site_name_active]:
-        is_https = site_list[site_name_active]["https"]
-
-    proto = 'https' if is_https else 'http'
-    pagepath = site_list[site_name_active]["pagepath"]
-    if not page_name:
-        # For URLs, we need to quote spaces to '%20' rather than '+' and not replace '/' with '%2F'
-        # Thus, force use of quote rather than quote_plus and use safe='/'.
-        page_name = mw_strquote(mw_get_title(), quote_plus=False, safe='/')
-    if page_name:
-        return '%s://%s%s%s' % (proto, site, pagepath, page_name)
-    else:
-        return ''
-
-
-def get_template_params(template):
-    """
-    There might be cases where we want to have the actual parameters
-    and not just a string, so I've split this out into separate functions.
-    Returns a list of parameters used in the template:
-    Usage:
-        >>> text = 'hi {{{1}}} - nice to see {{{2|you}}}. Have a nice {{{time|day}}}'
-        >>> get_template_params(text)
-        ['1', '2|you', 'time|day']
-    """
-    pattern = r'\{{3}(.*?)\}{3}' # Changed regex pattern so we only capture the argument and not the braces.
-    parameters = re.findall(pattern, template)
-    return parameters
-
-def get_template_params_dict(template, defaultvalue=''):
-    """
-    As get_template_params, but returns a dict of {paramname : defaultvalue}.
-    Use the defaultvalue keyword to specify the default value for parameters that
-    don't specify a default value in the template (default is an empty string, '').
-    Usage:
-        >>> text = 'hi {{{1}}} - nice to see {{{2|you}}}. Have a nice {{{time|day}}}'
-        >>> get_template_params(text, default='')
-        {'1': '', '2': 'you', 'time: 'day'}
-    """
-    parameters = get_template_params(template)
-    parameters = dict((split[0], split[1] if len(split) > 1 else defaultvalue) for split in
-                      (param.split('|') for param in parameters)) # Python 2.6 does not support dict comprehensions.
-    return parameters
-
-# This should be a function; not a method. ("self" isn't used).
-def get_template_params_str(text):
-    """
-    Mediawiki Template parameters can be provided in three way:
-        Anonymous: {{myTemplate|firstparam|2ndparam}} - will replate {{{1}}} with firstparam and {{{2}}} with 2ndparam
-        Numbered:  {{myTemplate|2=2ndparam|1=firstparam}} - same result as above.
-        Named:     {{myTemplate|sec=2ndparam|fir=firstparam}} - will replace {{{sec}}} with 2ndparam and {{{fir}}} with firstparam
-    In a template, the parameter placeholders can have default values:
-        {{{1|the1param}}}, {{{other|someotherparam}}}
-    If a parameter is not given when referencing the template with {{myTemplate}},
-    and the parameter placeholder in the template does not have a default value,
-    then the parameter placeholder is simply displayed in the output, e.g. {{{1}}}.
-
-    Usage: Typical usage is when referencing (by transclusion or substitution) a template:
-        >>> template = "hi {{{1}}} - nice to see {{{2|you}}}. Have a nice {{{time|day}}}"
-        >>> params_str = get_template_params_str(template) # Returns '|1=\n|2=you\n|time=day\n'
-        >>> template_link_text = {{%s%s%s}} % ('myTemplate', '\n' if params_str else '', params_str)
-        >>> print template_link_text
-        {{myTemplate:
-        }}
-    """
-    params_dict = get_template_params_dict(text)
-    return ''.join('|%s=%s\n' % (name, defval) for name, defval in sorted(params_dict.items()))
-
-def make_template_example_usage(template):
-    """
-    TODO: Add test for this and other simple functions.
-    """
-    params = get_template_params_dict(template)
-    template_name = mw_get_filename(template)
-    params_str = "\n".join("| {0}=Example {0}".format(key) for key in sorted(params.keys()))
-    return "Usage:\n{{ %s\n%s\n}}" % (template_name, params_str)
-
-def substitute_template_params(template, params, defaultvalue='', keep_unmatched=False):
-    """
-    Return template where where named placeholders have been substituted with parameters.
-    Args:
-        template : The template to substitute, e.g. "first: {{{firstparam}}} and another: {{{secondparam}}}, and a third: {{{thirdparam}}}."
-        params : dict of named parameters. Use '1' as string for paramter placeholder {{{1}}}, etc. (I recommend using named placeholders...)
-        defaultvalue : Default value to use if a parameter placeholder name is not found in the params dict.
-        keep_unmatched : If this is set to True, then only replace parameter placeholder that are found in the 'params' dict.
-            E.g. if params does not include the key 'someparam', then occurences of the
-            placeholder {{{someparam}}} in the template will NOT be replaced by defaultvalue,
-            but instead {{{someparam}}} is kept. This simulates the native behaviour of mediawiki.
-            (But note that this function does NOT account for <noinclude> or <!-- --> tags!)
-    Usage:
-        >>> template = "first: {{{firstparam}}} and another: {{{secondparam}}}";
-        >>> substitute_template_params(template, {'firstparam': '1st'}, defaultvalue='empty')
-        'first: 1st and another: empty'
-        >>> substitute_template_params(template, {'firstparam': '1st'}, keep_unmatched=True)
-        'first: 1st and another: {{{secondparam}}}'
-    """
-    pattern = r"\{{3}(.*?)\}{3}"
-    # match.group(0) returns the full match, match.group(N) returns the Nth subgroup match.
-    if keep_unmatched:
-        def repl(match):
-            return params.get(match.group(1), match.group(0))
-    else:
-        def repl(match):
-            return params.get(match.group(1), defaultvalue)
-    return re.sub(pattern, repl, template)
-
-
-class MediawikerTestInsertTextCommand(sublime_plugin.WindowCommand):
-    """
-    Test command to see how text commands work...
-    Command string: mediawiker_test_insert_text
-
-    Well, it seems text commands are executed (as per the print output),
-    but the window is unresponsive and does not actually print the text
-    until all commands are finished.
-    """
-    def appendText(self, text):
-        for k in range(600):
-            for j in range(1000):
-                x = k*j     # pylint: disable=W0612
-        self.window.active_view().run_command('mediawiker_insert_text', {'position': None, 'text': text+'\n'})
-
-    def run(self, dummy=None):
-        #view = self.window.active_view()
-        self.window.active_view().run_command('mediawiker_test_insert_textt')
-        #for i in range(10):
-        #    print("starting window cmd iteration no. %s " % i)
-        #    msg = "text_cmd_insert no. %s" % i
-        #    print(msg)
-        #    #sublime.set_timeout(partial(self.appendText, msg), 0)
-        #    # Using async means that it will update. Otherwise, it will hold until all is complete before updating.
-        #    sublime.set_timeout_async(partial(self.appendText, msg), 0)
-        #    print("Sleeping 1 second...")
-        #    for k in range(100):
-        #        for j in range(100):
-        #            x = k*j
-        #    #time.sleep(1)
-        #    print("window cmd iteration no. %s complete." % i)
-
-class MediawikerTestInsertTexttCommand(sublime_plugin.TextCommand):
-    """
-    Test command to see how text commands work...
-    Command string: mediawiker_test_insert_textt
-
-    Well, it seems text commands are executed (as per the print output),
-    but the window is unresponsive and does not actually print the text
-    until all commands are finished.
-    """
-    def appendText(self, edit, text):
-        """
-        Using set_timeout(_async) to call own command's methods with an edit token
-        and trying to use it for making edits will invariantly produce a
-        ValueError: Edit objects may not be used after the TextCommand's run method has returned
-        """
-        for k in range(600):
-            for j in range(1000):
-                x = k*j  # pylint: disable=W0612
-        position = self.view.size()
-        #self.view.insert(edit, position, text)
-        self.view.run_command('mediawiker_insert_text', {'position': position, 'text': text+'\n'})
-        #self.view.run_command('mediawiker_upload_single_file', kwargs)
-
-    def run(self, edit, dummy=None):
-        for i in range(10):
-            print("starting window cmd iteration no. %s " % i)
-            msg = "text_cmd_insert no. %s" % i
-            print(msg)
-            #sublime.set_timeout(partial(self.appendText, msg), 0)
-            # Using async means that it will update. Otherwise, it will hold until all is complete before updating.
-            sublime.set_timeout_async(partial(self.appendText, edit, msg), 0)
-            #print("Sleeping 1 second...")
-            #for k in range(100):
-            #    for j in range(100):
-            #        x = k*j
-            #time.sleep(1)
-            print("window cmd iteration no. %s complete." % i)
-
-
-class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
-    """
-    Command string: mediawiker_insert_text
-    When run, insert text at position.
-    If position is None, insert at current position.
-    Other commonly-used shortcuts are:
-        cursor_position = self.view.sel()[0].begin()
-        end_of_file = self.view.size()
-        start_of_file = 0
-    """
-    def run(self, edit, position=None, text=''):
-        if position is None:
-            # Note: Probably better to use built-in command, "insert":
-            # { "keys": ["enter"], "command": "insert", "args": {"characters": "\n"} }
-            position = self.view.sel()[0].begin()
-            #position = self.view.size()
-        self.view.insert(edit, position, text)
-        print("Inserted %s chars at pos %s" % (len(text), position))
+            print("Custom test...")
 
 
 class MediawikerPageCommand(sublime_plugin.WindowCommand):
@@ -764,6 +148,7 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
     run_in_new_window = False
 
     def run(self, action, title=''):
+        """ Entry point, invoked with action keyword and optionally a pre-defined title. """
         self.action = action
         actions_validate = ['mediawiker_publish_page', 'mediawiker_add_category',
                             'mediawiker_category_list', 'mediawiker_search_string_list',
@@ -771,13 +156,13 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
                             'mediawiker_upload']
 
         if self.action == 'mediawiker_show_page':
-            if mw_get_setting('mediawiker_newtab_ongetpage'):
+            if mw.get_setting('mediawiker_newtab_ongetpage'):
                 self.run_in_new_window = True
 
             if not title:
                 pagename_default = ''
                 # use clipboard or selected text for page name
-                if bool(mw_get_setting('mediawiker_clipboard_as_defaultpagename')):
+                if bool(mw.get_setting('mediawiker_clipboard_as_defaultpagename')):
                     pagename_default = sublime.get_clipboard().strip()
                 if not pagename_default:
                     selection = self.window.active_view().sel()
@@ -785,156 +170,50 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
                     #     pagename_default = self.window.active_view().substr(selreg).strip()
                     #     break
                     pagename_default = self.window.active_view().substr(selection[0]).strip()
-                self.window.show_input_panel('Wiki page name:', mw_pagename_clear(pagename_default), self.on_done, self.on_change, None)
+                self.window.show_input_panel('Wiki page name:', mw.pagename_clear(pagename_default), self.on_done, self.on_change, None)
             else:
                 self.on_done(title)
         elif self.action == 'mediawiker_reopen_page':
             # get page name
             if not title:
-                title = mw_get_title()
+                title = mw.get_title()
             self.action = 'mediawiker_show_page'
             self.on_done(title)
         elif self.action in actions_validate:
             self.on_done('')
 
     def on_change(self, title):
+        """ Invoked whenever the content of the input panel is changed. """
         if title:
-            pagename_cleared = mw_pagename_clear(title)
+            pagename_cleared = mw.pagename_clear(title)
             if title != pagename_cleared:
                 self.window.show_input_panel('Wiki page name:', pagename_cleared, self.on_done, self.on_change, None)
 
     def on_done(self, title):
+        """ Invoked when the title has been set. Will then pass the 'action' keyword
+        and title on to mediawiker_validate_connection_params window command. """
         if self.run_in_new_window:
             sublime.active_window().new_file()
             self.run_in_new_window = False
         try:
             if title:
-                title = mw_pagename_clear(title)
+                title = mw.pagename_clear(title)
             self.window.run_command("mediawiker_validate_connection_params", {"title": title, "action": self.action})
         except ValueError as e:
             sublime.message_dialog(e)
 
-
-class MediawikerOpenPageCommand(sublime_plugin.WindowCommand):
-    ''' alias to Get page command '''
-
-    def run(self):
-        self.window.run_command("mediawiker_page", {"action": "mediawiker_show_page"})
-
-
-class MediawikerReopenPageCommand(sublime_plugin.WindowCommand):
-    """
-    Reopen the current views's page (in current view).
-    Will overwrite current view's buffer content.
-    Command string: mediawiker_reopen_page
-    """
-    def run(self):
-        # Yeah, this is kind of a weird one. MediawikerPageCommand will intercept
-        # 'mediawiker_reopen_page' action and use 'mediawiker_show_page' instead.
-        # So, no - it is not an infinite loop, although it would seem like it ;-)
-        self.window.run_command("mediawiker_page", {"action": "mediawiker_reopen_page"})
-
-class MediawikerAskReopenPageCommand(sublime_plugin.WindowCommand):
-    """
-    Reopen the current views's page (in current view).
-    Will ask for confirmation before invoking the normal reopen page command.
-    Command string: mediawiker_ask_reopen_page
-    """
-    def run(self):
-        do_reopen = sublime.ok_cancel_dialog("Re-open page? (Note: This will overwrite existing content in current view.)")
-        if do_reopen:
-            print("Reopening page, do_reopen =", do_reopen)
-            self.window.run_command("mediawiker_page", {"action": "mediawiker_reopen_page"})
-        else:
-            print("Re-open page cancelled, do_reopen =", do_reopen)
-
-
-class MediawikerPostPageCommand(sublime_plugin.WindowCommand):
-    ''' alias to Publish page command '''
-
-    def run(self):
-        self.window.run_command("mediawiker_page", {"action": "mediawiker_publish_page"})
-
-
-class MediawikerSetCategoryCommand(sublime_plugin.WindowCommand):
-    ''' alias to Add category command '''
-
-    def run(self):
-        self.window.run_command("mediawiker_page", {"action": "mediawiker_add_category"})
-
-
-class MediawikerInsertImageCommand(sublime_plugin.WindowCommand):
-    ''' alias to Add image command '''
-
-    def run(self):
-        self.window.run_command("mediawiker_page", {"action": "mediawiker_add_image"})
-
-
-class MediawikerInsertTemplateCommand(sublime_plugin.WindowCommand):
-    ''' alias to Add template command '''
-
-    def run(self):
-        self.window.run_command("mediawiker_page", {"action": "mediawiker_add_template"})
-
-
-class MediawikerFileUploadCommand(sublime_plugin.WindowCommand):
-    """
-    Alias to Upload TextCommand.
-    Command string: mediawiker_file_upload
-    """
-
-    def run(self):
-        self.window.run_command("mediawiker_page", {"action": "mediawiker_upload"})
-
-
-class MediawikerCategoryTreeCommand(sublime_plugin.WindowCommand):
-    ''' alias to Category list command '''
-
-    def run(self):
-        self.window.run_command("mediawiker_page", {"action": "mediawiker_category_list"})
-
-
-class MediawikerSearchStringCommand(sublime_plugin.WindowCommand):
-    ''' alias to Search string list command '''
-
-    def run(self):
-        self.window.run_command("mediawiker_page", {"action": "mediawiker_search_string_list"})
-
-
-class MediawikerPageListCommand(sublime_plugin.WindowCommand):
-
-    def run(self, storage_name='mediawiker_pagelist'):
-        site_name_active = mw_get_setting('mediawiki_site_active')
-        mediawiker_pagelist = mw_get_setting(storage_name, {})
-        self.my_pages = mediawiker_pagelist.get(site_name_active, [])
-        if self.my_pages:
-            self.my_pages.reverse()
-            # error 'Quick panel unavailable' fix with timeout..
-            sublime.set_timeout(lambda: self.window.show_quick_panel(self.my_pages, self.on_done), 1)
-        else:
-            sublime.status_message('List of pages for wiki "%s" is empty.' % (site_name_active))
-
-    def on_done(self, index):
-        if index >= 0:
-            # escape from quick panel return -1
-            title = self.my_pages[index]
-            try:
-                self.window.run_command("mediawiker_page", {"title": title, "action": "mediawiker_show_page"})
-            except ValueError as e:
-                sublime.message_dialog(e)
-
-
 class MediawikerValidateConnectionParamsCommand(sublime_plugin.WindowCommand):
     """
-    It seems like this is called (with run) in MediawikerPageCommand.run()
+    Command string: mediawiker_validate_connection_params
+    This is called (with run) in MediawikerPageCommand.run()
     in order to perform last preparations before executing the action that
-    interacts with the wiki.
+    interacts with the wiki. (Basically just obtain password if required...)
 
-    action is typically a Window/TextCommand that interacts with the mediawiki server,
+    The <action> command string string will be invoked in the active view.
+    This is typically a text command that interacts with the mediawiki server,
     e.g. mediawikier_show_page (MediawikerShowPageCommand).
 
-    title must be wikipage title, not filename.
-
+    <title> argument must be wikipage title, not filename.
     """
     site = None
     password = ''
@@ -944,12 +223,17 @@ class MediawikerValidateConnectionParamsCommand(sublime_plugin.WindowCommand):
     PASSWORD_CHAR = u'\u25CF'
 
     def run(self, title, action):
-        self.is_hide_password = mw_get_setting('mediawiker_password_input_hide')
-        self.PASSWORD_CHAR = mw_get_setting('mediawiker_password_char')
+        """
+        Command entry point. Usually invoked from/via MediawikerPage command, which
+        makes sure to set title and action (text command).
+        This will obtain and validate connection parameters including password if required.
+        """
+        self.is_hide_password = mw.get_setting('mediawiker_password_input_hide')
+        self.PASSWORD_CHAR = mw.get_setting('mediawiker_password_char')
         self.action = action  # TODO: check for better variant
         self.title = title
-        site = mw_get_setting('mediawiki_site_active')
-        site_list = mw_get_setting('mediawiki_site')
+        site = mw.get_setting('mediawiki_site_active')
+        site_list = mw.get_setting('mediawiki_site')
         self.password = site_list[site]["password"]
         if site_list[site]["username"]:
             # auth required if username exists in settings
@@ -963,10 +247,17 @@ class MediawikerValidateConnectionParamsCommand(sublime_plugin.WindowCommand):
             self.call_page()
 
     def _get_password(self, str_val):
+        """ Return a replacement string for a password, e.g. _get_password("Monty") -> "*****". """
         self.password = self.password + str_val.replace(self.PASSWORD_CHAR, '')
         return self.PASSWORD_CHAR * len(self.password)
 
     def on_change(self, str_val):
+        """
+        Invoked repeatedly as the user types password in the input panel.
+        If mediawiker_password_input_hide setting is set to True, then this call will:
+        1) Append all non-asterix chars in the input panel to self.password (asterix aka PASSWORD_CHAR)
+        2) Replace the current content of the input panel with an asterix-only string of equal length.
+        """
         if str_val:
             if self.is_hide_password:
                 # password hiding hack..
@@ -980,12 +271,492 @@ class MediawikerValidateConnectionParamsCommand(sublime_plugin.WindowCommand):
             self.password = ''
 
     def on_done(self, password):
+        """ Invoked when the user has entered his password.
+        If self.is_hide_password is True, then the password argument will consist only of asterix'es. """
         if not self.is_hide_password:
             self.password = password
         self.call_page()
 
     def call_page(self):
+        """ Invoke the action command string in the active view, providing title and password as keyword arguments. """
         self.window.active_view().run_command(self.action, {"title": self.title, "password": self.password})
+
+
+
+class MediawikerOpenPageCommand(sublime_plugin.WindowCommand):
+    """
+    Open a page, using mediawiker_page->mediawiker_validate_connection_params->mediawiker_show_page command chain.
+    Command string: mediawiker_open_page (window command).
+    """
+
+    def run(self):
+        self.window.run_command("mediawiker_page", {"action": "mediawiker_show_page"})
+
+
+class MediawikerReopenPageCommand(sublime_plugin.WindowCommand):
+    """
+    Reopen the current views's page (in current view).
+    Will overwrite current view's buffer content.
+    Command string: mediawiker_reopen_page
+    """
+    def run(self):
+        """
+        Yeah, this is kind of a weird one. MediawikerPageCommand will intercept
+        'mediawiker_reopen_page' action and use 'mediawiker_show_page' instead (plus some extra stuff to prepare).
+        So, no - it is not an infinite loop, although it would seem like it ;-)
+        """
+        self.window.run_command("mediawiker_page", {"action": "mediawiker_reopen_page"})
+
+class MediawikerAskReopenPageCommand(sublime_plugin.WindowCommand):
+    """
+    Reopen the current views's page (in current view).
+    Will ask for confirmation before invoking the normal reopen page command.
+    Command string: mediawiker_ask_reopen_page
+    """
+    def run(self):
+        """ Command entry point. """
+        do_reopen = sublime.ok_cancel_dialog("Re-open page? (Note: This will overwrite existing content in current view.)")
+        if do_reopen:
+            print("Reopening page, do_reopen =", do_reopen)
+            self.window.run_command("mediawiker_page", {"action": "mediawiker_reopen_page"})
+        else:
+            print("Re-open page cancelled, do_reopen =", do_reopen)
+
+
+class MediawikerPostPageCommand(sublime_plugin.WindowCommand):
+    """
+    Invoke MediawikerPublishPageCommand (text command) via MediawikerPage->ValidateParams chain.
+    Command string: mediawiker_post_page
+    """
+    def run(self):
+        """ Command entry point. """
+        self.window.run_command("mediawiker_page", {"action": "mediawiker_publish_page"})
+
+
+class MediawikerSetCategoryCommand(sublime_plugin.WindowCommand):
+    """
+    Invoke MediawikerAddCategoryCommand (text command) via MediawikerPage->ValidateParams chain.
+    Command string: mediawiker_set_category
+    """
+    def run(self):
+        """ Command entry point. """
+        self.window.run_command("mediawiker_page", {"action": "mediawiker_add_category"})
+
+
+class MediawikerInsertImageCommand(sublime_plugin.WindowCommand):
+    """
+    Invoke MediawikerAddImageCommand (text command) via MediawikerPage->ValidateParams chain.
+    Command string: mediawiker_insert_image
+    """
+    def run(self):
+        """ Command entry point. """
+        self.window.run_command("mediawiker_page", {"action": "mediawiker_add_image"})
+
+
+class MediawikerInsertTemplateCommand(sublime_plugin.WindowCommand):
+    """
+    Invoke MediawikerAddTemplateCommand (text command) via MediawikerPage->ValidateParams chain.
+    Command string: mediawiker_insert_template
+    """
+    def run(self):
+        """ Command entry point. """
+        self.window.run_command("mediawiker_page", {"action": "mediawiker_add_template"})
+
+
+class MediawikerFileUploadCommand(sublime_plugin.WindowCommand):
+    """
+    Alias to Upload TextCommand.
+    Command string: mediawiker_file_upload
+    """
+    def run(self):
+        """ Command entry point. """
+        self.window.run_command("mediawiker_page", {"action": "mediawiker_upload"})
+
+
+class MediawikerCategoryTreeCommand(sublime_plugin.WindowCommand):
+    """
+    Invoke MediawikerCategoryListCommand (text command) via MediawikerPage->ValidateParams chain.
+    Command string: mediawiker_category_tree
+    """
+    def run(self):
+        """ Command entry point. """
+        self.window.run_command("mediawiker_page", {"action": "mediawiker_category_list"})
+
+
+class MediawikerSearchStringCommand(sublime_plugin.WindowCommand):
+    """
+    Invoke MediawikerSearchStringListCommand (text command) via MediawikerPage->ValidateParams chain.
+    Command string: mediawiker_search_string
+    """
+    def run(self):
+        """ Command entry point. """
+        self.window.run_command("mediawiker_page", {"action": "mediawiker_search_string_list"})
+
+
+class MediawikerPageListCommand(sublime_plugin.WindowCommand):
+    """ Display a panel to the user with recent pages for the active site. Command string: mediawiker_page_list"""
+
+    def run(self, storage_name='mediawiker_pagelist'):
+        """ Command entry point. """
+        site_name_active = mw.get_setting('mediawiki_site_active')
+        mediawiker_pagelist = mw.get_setting(storage_name, {})
+        self.my_pages = mediawiker_pagelist.get(site_name_active, [])
+        if self.my_pages:
+            self.my_pages.reverse()
+            # error 'Quick panel unavailable' fix with timeout..
+            sublime.set_timeout(lambda: self.window.show_quick_panel(self.my_pages, self.on_done), 1)
+        else:
+            sublime.status_message('List of pages for wiki "%s" is empty.' % (site_name_active))
+
+    def on_done(self, index):
+        """ Invoked when the page (index) has been selected. """
+        if index >= 0:
+            # escape from quick panel return -1
+            title = self.my_pages[index]
+            try:
+                self.window.run_command("mediawiker_page", {"title": title, "action": "mediawiker_show_page"})
+            except ValueError as e:
+                sublime.message_dialog(e)
+
+
+class MediawikerEditPanelCommand(sublime_plugin.WindowCommand):
+    """
+    Displays a quick panel with available snippets and inserts the selected.
+    """
+    options = []
+    SNIPPET_CHAR = u'\u24C8'
+
+    def run(self):
+        self.SNIPPET_CHAR = mw.get_setting('mediawiker_snippet_char')
+        self.options = mw.get_setting('mediawiker_panel', {})
+        if self.options:
+            office_panel_list = ['\t%s' % val['caption'] if val['type'] != 'snippet' else '\t%s %s' % (self.SNIPPET_CHAR, val['caption']) for val in self.options]
+            self.window.show_quick_panel(office_panel_list, self.on_done)
+
+    def on_done(self, index):
+        if index >= 0:
+            # escape from quick panel return -1
+            try:
+                action_type = self.options[index]['type']
+                action_value = self.options[index]['value']
+                if action_type == 'snippet':
+                    # run snippet
+                    self.window.active_view().run_command("insert_snippet", {"name": action_value})
+                elif action_type == 'window_command':
+                    # run command
+                    self.window.run_command(action_value)
+                elif action_type == 'text_command':
+                    # run command
+                    self.window.active_view().run_command(action_value)
+            except ValueError as e:
+                sublime.status_message(e)
+
+
+class MediawikerCliCommand(sublime_plugin.WindowCommand):
+
+    def run(self, url):
+        if url:
+            # print('Opening page: %s' % url)
+            sublime.set_timeout(lambda: self.window.run_command("mediawiker_page", {"action": "mediawiker_show_page", "title": self.proto_replacer(url)}), 1)
+
+    def proto_replacer(self, url):
+        if sublime.platform() == 'windows' and url.endswith('/'):
+            url = url[:-1]
+        elif sublime.platform() == 'linux' and url.startswith("'") and url.endswith("'"):
+            url = url[1:-1]
+        return url.split("://")[1]
+
+
+class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
+    """
+    Command string: mediawiker_new_experiment
+    Create a new experiment:
+    - exp folder, if mediawiker_experiments_basedir is specified.
+    - new wiki page (in new buffer), if mediawiker_experiments_title_fmt is boolean true.
+    - load buffer with template, if mediawiker_experiments_template
+    --- and fill in template argument, as specified by mediawiker_experiments_template_args
+    - TODO: How about making a link to the page and appending it to the experiments_overview_page
+    This is a window command, since we might not have any views open when it is invoked.
+
+    Question: Does Sublime wait for window commands to finish, or are they dispatched to run
+    asynchronously in a separate thread? ST waits for one command to finish before a new is invoked.
+    In other words: *Commands cannot be used as functions*. That makes ST plugin development a bit convoluted.
+    It is generally best to avoid any "run_command" calls, until the end of any methods/commands.
+
+    """
+
+    def run(self):
+        ### Loading all relevant settings: ###
+        # The base directory where the user stores his experiments, e.g. /home/me/documents/experiments/
+        #self.exp_basedir = mw.get_setting('mediawiker_experiments_basedir')
+        #self.save_page_in_exp_folder = mw.get_setting('mediawiker_experiments_save_page_in_exp_folder', False)
+        # How to format the folder, e.g. "{expid} {exp_titledesc}"
+        #self.exp_foldername_fmt = mw.get_setting('mediawiker_experiments_foldername_fmt')
+        # Experiments overview page: Manually lists (and links) to all experiments.
+        #self.experiments_overview_page = mw.get_setting('mediawiker_experiments_overview_page')
+        #self.experiment_overview_link_format = mw.get_setting('mediawiker_experiments_overview_link_fmt', "\n* [[{}]]")
+        #self.template = mw.get_setting('mediawiker_experiments_template')
+        # Constant args to feed to the template (Mostly for shared templates).
+        #self.template_kwargs = mw.get_setting('mediawiker_experiments_template_kwargs', {})
+        # title format, e.g. "MyExperiments/{expid} {exp_titledesc}". If not set, no new buffer is created.
+        #self.title_fmt = mw.get_setting('mediawiker_experiments_title_fmt')
+        # Which substitution mode to use:
+        # "python-format" = template.format(**kwargs), "python-%" = template % kwargs, "mediawiki" = substitute_template_params(template, kwargs)
+        #self.template_subst_mode = mw.get_setting('mediawiker_experiments_template_subst_mode')
+        # Building the experiment's buffer text incrementally by hand, inserting it into the view when complete.
+        self.exp_buffer_text = ""
+
+        # Start input chain:
+        self.window.show_input_panel('Experiment ID:', '', self.expid_received, None, None)
+
+    def expid_received(self, expid):
+        """ Saves expid input and asks the user for titledesc. """
+        self.expid = expid # empty string is OK.
+        self.window.show_input_panel('Exp title desc:', '', self.exp_title_received, None, None)
+
+    def exp_title_received(self, exp_titledesc):
+        """ Saves titledesc input and asks the user for bigcomment text. """
+        self.exp_titledesc = exp_titledesc # empty string is OK.
+        self.window.show_input_panel('Big page comment:', self.expid, self.bigcomment_received, None, None)
+
+    def bigcomment_received(self, bigcomment):
+        """ Saves bigcomment input and invokes on_done. """
+        self.bigcomment = bigcomment
+        self.on_done()
+
+
+    def on_done(self, dummy=None):
+        """
+        Called when all user input have been collected.
+        """
+        # Ways to format a date/datetime as string: startdate.strftime("%Y-%m-%d"), or "{:%Y-%m-%d}".format(startdate)
+
+        # Non-attribute settings:
+        startdate = date.today().isoformat()    # datetime.now()
+        exp_basedir = mw.get_setting('mediawiker_experiments_basedir')
+        experiments_overview_page = mw.get_setting('mediawiker_experiments_overview_page')
+        title_fmt = mw.get_setting('mediawiker_experiments_title_fmt')
+        template = mw.get_setting('mediawiker_experiments_template')
+        template_subst_mode = mw.get_setting('mediawiker_experiments_template_subst_mode')
+        save_page_in_exp_folder = mw.get_setting('mediawiker_experiments_save_page_in_exp_folder', False)
+        template_kwargs = mw.get_setting('mediawiker_experiments_template_kwargs', {})
+
+        if not any((self.expid, self.exp_titledesc)):
+            # If both expid and exp_title are empty, just abort:
+            print("expid and exp_titledesc are both empty, aborting...")
+            return
+
+        ## 1. Make experiment folder, if appropriate: ##
+        # If exp_foldername_fmt is not specified, use title_fmt (remove any '/' and whatever is before it)?
+        foldername_fmt = mw.get_setting('mediawiker_experiments_foldername_fmt', (title_fmt or '').split('/')[-1])
+        if exp_basedir and foldername_fmt:
+            if os.path.isdir(exp_basedir):
+                foldername = foldername_fmt.format(expid=self.expid, exp_titledesc=self.exp_titledesc)
+                folderpath = os.path.join(exp_basedir, foldername)
+                try:
+                    os.mkdir(folderpath)
+                    msg = "Created new experiment directory: %s" % (folderpath,)
+                except FileExistsError:
+                    msg = "New exp directory already exists: %s" % (folderpath,)
+                except (WindowsError, OSError, IOError) as e:
+                    msg = "Error creating new exp directory '%s' :: %s" % (folderpath, repr(e))
+            else:
+                # We are not creating a new folder for the experiment because basedir doesn't exists:
+                msg = "Specified experiment base dir does not exists: %s" % (exp_basedir,)
+                foldername = folderpath = None
+            print(msg)
+            sublime.status_message(msg)
+
+        ## 2. Make new view, if title_fmt is specified: ##
+        if title_fmt:
+            self.pagetitle = title_fmt.format(expid=self.expid, exp_titledesc=self.exp_titledesc)
+            self.view = exp_view = sublime.active_window().new_file() # Make a new file/buffer/view
+            self.window.focus_view(exp_view) # exp_view is now the window's active_view
+            filename = mw.strquote(self.pagetitle)
+            view_default_dir = folderpath if save_page_in_exp_folder and folderpath \
+                                          else mw.get_setting('mediawiker_file_rootdir')
+            if view_default_dir:
+                print("Setting view's default dir to:", view_default_dir)
+                exp_view.settings().set('default_dir', view_default_dir) # Update the view's working dir.
+            exp_view.set_name(filename)
+            # Manually set the syntax file to use (since the view does not have a file extension)
+            self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
+        else:
+            # We are not creating a new view, use the active view:
+            self.view = exp_view = self.window.active_view()
+
+        ## 3. Create big comment text: ##
+        if self.bigcomment:
+            exp_figlet_comment = mw.get_figlet_text(self.bigcomment) # Makes the big figlet text
+            self.exp_buffer_text += mw.adjust_figlet_comment(exp_figlet_comment, foldername or self.bigcomment) # Adjusts the figlet to produce a comment
+
+        ## 4. Generate template : ##
+        if template:
+            # Load the template: #
+            if os.path.isfile(template):
+                # User specified a local file:
+                print("Using template:", template)
+                with open(template) as fd:
+                    template_content = fd.read()
+                print("Template length:", len(template_content))
+            else:
+                # Assume template is a page on the server:
+                # This will load the page into the window's active_view (asking for password, if required):
+                # We have to manually obtain the template and do variable substitution
+                #self.window.run_command("mediawiker_validate_connection_params", {"title": self.pagetitle, "action": 'mediawiker_show_page'})
+                raise NotImplementedError("Obtaining templates from the server is not yet implemented...")
+
+            # Perform template substitution (locally): #
+            # Update kwargs with user input and today's date:
+            template_kwargs.update({'expid': self.expid, 'exp_titledesc': self.exp_titledesc, 'startdate': startdate, 'date': startdate})
+            if template_subst_mode == 'python-fmt':
+                # template_kwargs must be dict/mapping: (template_args_order no longer supported)
+                template_content = template_content.format(**template_kwargs)
+            elif template_subst_mode == 'python-%':
+                # "%s" string interpolation: template_vars must be tuple or dict (both will work):
+                template_content = template_content % template_kwargs
+            elif template_subst_mode in ('mediawiki', 'wiki', None) or True: # This is currently the default. Allows me to use wiki templates as local templates.
+                # Use custom wiki template variable insertion function:
+                # Get template args (defaults)  -- edit: I just use keep_unmatched=True.
+                #template_params = get_template_params_dict(template_content, defaultvalue='')
+                #print("Parameters in template:", template_params)
+                #template_params.update(template_kwargs)
+                template_content = mw.substitute_template_params(template_content, template_kwargs, keep_unmatched=True)
+
+            # Add template to buffer text string:
+            self.exp_buffer_text = "".join(text.strip() for text in (self.exp_buffer_text, template_content))
+
+        else:
+            print('No template specified (settings key "mediawiker_experiments_template").')
+
+
+        ## 6. Append self.exp_buffer_text to the view: ##
+        exp_view.run_command('mediawiker_insert_text', {'position': exp_view.size(), 'text': self.exp_buffer_text})
+
+        ## 7. Add a link to experiments_overview_page (local file): ##
+        if experiments_overview_page:
+            # Generate a link to this experiment:
+            link_fmt = mw.get_setting('mediawiker_experiments_overview_link_fmt', "\n* [[{}]]")
+            if self.pagetitle:
+                link_text = link_fmt.format(self.pagetitle)
+            else:
+                # Add a link to the current buffer's title, assuming the experiment header is the same as foldername
+                link = "{}#{}".format(mw.get_title(), foldername.replace(' ', '_'))
+                link_text = link_fmt.format(link)
+
+            # Insert link on experiments_overview_page. Currently, this must be a local file.
+            # (We just edit the file on disk and let ST pick up the change if the file is opened in any view.)
+            if os.path.isfile(experiments_overview_page):
+                print("Adding link '%s' to file '%s'" % (link_text, experiments_overview_page))
+                # We have a local file, append link:
+                with open(experiments_overview_page, 'a') as fd:
+                    # In python3, there is a bigger difference between binary 'b' mode and normal (text) mode.
+                    # Do not open in binary 'b' mode when writing/appending strings. It is not supported in python 3.
+                    # If you want to write strings to files opened in binary mode, you have to cast the string to bytes / encode it:
+                    # >>> fd.write(bytes(mystring, 'UTF-8')) *or* fd.write(mystring.encode('UTF-8'))
+                    fd.write(link_text) # The format should include newline if desired.
+                print("Appended %s chars to file '%s" % (len(link_text), experiments_overview_page))
+            else:
+                # User probably specified a page on the wiki. (This is not yet supported.)
+                # Even if this is a page on the wiki, you should check whether that page is already opened in Sublime.
+                ## TODO: Implement specifying experiments_overview_page from server.
+                print("Using experiment_overview_page from the server is not yet supported.")
+
+        print("MediawikerNewExperimentCommand completed!\n")
+
+
+class MediawikerFavoritesAddCommand(sublime_plugin.WindowCommand):
+    """ Add current page to the favorites list. Command string: mediawiker_favorites_add  (WindowCommand) """
+    def run(self):
+        title = mw.get_title()
+        mw.save_mypages(title=title, storage_name='mediawiker_favorites')
+
+
+class MediawikerFavoritesOpenCommand(sublime_plugin.WindowCommand):
+    """
+    Open page from the favorites list.
+    Command string: mediawiker_favorites_open (WindowCommand)
+    """
+    def run(self):
+        self.window.run_command("mediawiker_page_list", {"storage_name": 'mediawiker_favorites'})
+
+
+
+class MediawikerSetLoginCookie(sublime_plugin.WindowCommand):
+    """
+    Set login cookie.
+    Command string: mediawiker_set_login_cookie (WindowCommand)
+    """
+    def run(self):
+        current_cookie = mw.get_login_cookie(default='')
+        # show_input_panel(caption, initial_text, on_done, on_change, on_cancel)
+        self.window.show_input_panel('Set login cookie:', current_cookie, self.on_done, None, None)
+    def on_done(self, text):
+        if not text:
+            msg = "No cookie input..."
+        else:
+            mw.set_login_cookie(text)
+            msg = "Login cookie set :)"
+        print(msg)
+
+
+class MediawikerSavePageCommand(sublime_plugin.WindowCommand):
+    """
+    The default 'save' behaviour, invoked with e.g. ctrl+s (cmd+s) should be
+    user-customizable, and certainly NOT override the user's ability to save the buffer
+    using the normal ctrl+s keyboard shortcut.
+
+    I, for one, hit ctrl+s every ten seconds or so, just out of habit.
+    I *do not* want Mediawiker to push the page to the server that often (thus cluttering the history).
+    I keep a local copy of the file during editing (which is synchronized via Dropbox
+    to other running ST instances on other computers - works perfectly).
+
+    Perhaps it is better to use an EventListener and use on_pre/post_save hooks to
+    alter ctrl+s behaviour? Is that what the MediawikerLoad EventListener below is trying to do?
+    """
+    def run(self):
+        on_save_action = mw.get_setting('mediawiker_on_save_action')
+        # on_save_action can be a string or list, specifying what actions to take:
+        if 'savefile' in on_save_action:
+            # How do you save the view buffer?
+            pass
+        if 'publish' in on_save_action:
+            self.window.run_command("mediawiker_page", {"action": "mediawiker_publish_page"})
+
+
+
+######### TEXT COMMANDS ###############
+
+######## ######## ##     ## ########     ######  ##     ## ########   ######
+   ##    ##        ##   ##     ##       ##    ## ###   ### ##     ## ##    ##
+   ##    ##         ## ##      ##       ##       #### #### ##     ## ##
+   ##    ######      ###       ##       ##       ## ### ## ##     ##  ######
+   ##    ##         ## ##      ##       ##       ##     ## ##     ##       ##
+   ##    ##        ##   ##     ##       ##    ## ##     ## ##     ## ##    ##
+   ##    ######## ##     ##    ##        ######  ##     ## ########   ######
+
+
+
+class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
+    """
+    Command string: mediawiker_insert_text
+    When run, insert text at position in the view.
+    If position is None, insert at current position.
+    Other commonly-used shortcuts are:
+        cursor_position = self.view.sel()[0].begin()
+        end_of_file = self.view.size()
+        start_of_file = 0
+    """
+    def run(self, edit, position=None, text=''):
+        """ TextCommand entry point, edit token is provided by Sublime. """
+        if position is None:
+            # Note: Probably better to use built-in command, "insert":
+            # { "keys": ["enter"], "command": "insert", "args": {"characters": "\n"} }
+            position = self.view.sel()[0].begin()
+            #position = self.view.size()
+        self.view.insert(edit, position, text)
+        print("Inserted %s chars at pos %s" % (len(text), position))
+
 
 
 class MediawikerShowPageCommand(sublime_plugin.TextCommand):
@@ -998,10 +769,9 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
     through the MediawikerPageCommand WindowCommand (which again obtains the password
     if required by invoking MediawikerValidateConnectionParamsCommand).
     """
-
     def run(self, edit, title, password):
-        sitecon = mw_get_connect(password)
-        is_writable, text = mw_get_page_text(sitecon, title)
+        sitecon = mw.get_connect(password)
+        is_writable, text = mw.get_page_text(sitecon, title)
         if is_writable and not text:
             sublime.status_message('Wiki page %s is not exists. You can create new..' % (title))
             text = '<New wiki page: Remove this with text of the new page>'
@@ -1009,12 +779,12 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
             self.view.erase(edit, sublime.Region(0, self.view.size()))
             self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
             self.view.set_name(title)
-            if mw_get_setting('mediawiker_title_to_filename', True):
+            if mw.get_setting('mediawiker_title_to_filename', True):
                 # If mediawiker_title_to_filename is specified, the title is cast to a
                 # "filesystem friendly" alternative by quoting. When posting, this is converted
                 # back to the original title.
-                filename = mw_get_filename(title)
-                print("mw_get_filename('%s') returned '%s' -- using this to set the name." % (title, filename))
+                filename = mw.get_filename(title)
+                print("mw.get_filename('%s') returned '%s' -- using this to set the name." % (title, filename))
                 # I like to have a default directory where I store my mediawiki pages.
                 # I use the settings key 'mediawiker_file_rootdir' to specify this directory,
                 # which is prefixed to the file, if specified:
@@ -1022,7 +792,7 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
                 # I then use the view's default_dir setting to change to this dir:
                 # There are also some considerations for pages with '/' in the title,
                 # this can either be quoted or we can place the file in a sub-directory.
-                if mw_get_setting('mediawiker_file_rootdir', None):
+                if mw.get_setting('mediawiker_file_rootdir', None):
                     # If mediawiker_file_rootdir is set, then filename is a path with rootdir
                     # Update the view's working dir to reflect this:
                     self.view.settings().set('default_dir', os.path.dirname(filename))
@@ -1042,13 +812,13 @@ class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
     current_text = ''
 
     def run(self, edit, title, password):
-        sitecon = mw_get_connect(password)
-        self.title = mw_get_title()
+        sitecon = mw.get_connect(password)
+        self.title = mw.get_title()
         if self.title:
             self.page = sitecon.Pages[self.title]
             if self.page.can('edit'):
                 self.current_text = self.view.substr(sublime.Region(0, self.view.size()))
-                summary_message = 'Changes summary (%s):' % mw_get_setting('mediawiki_site_active')
+                summary_message = 'Changes summary (%s):' % mw.get_setting('mediawiki_site_active')
                 self.view.window().show_input_panel(summary_message, '', self.on_done, None, None)
             else:
                 sublime.status_message('You have not rights to edit this page')
@@ -1058,8 +828,8 @@ class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
 
     def on_done(self, summary):
         try:
-            summary = '%s%s' % (summary, mw_get_setting('mediawiker_summary_postfix', ' (by SublimeText.Mediawiker)'))
-            mark_as_minor = mw_get_setting('mediawiker_mark_as_minor')
+            summary = '%s%s' % (summary, mw.get_setting('mediawiker_summary_postfix', ' (by SublimeText.Mediawiker)'))
+            mark_as_minor = mw.get_setting('mediawiker_mark_as_minor')
             if self.page.can('edit'):
                 # invert minor settings command '!'
                 if summary[0] == '!':
@@ -1071,7 +841,7 @@ class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
         except errors.EditError as e:
             sublime.status_message('Can\'t publish page %s (%s)' % (self.title, e))
         sublime.status_message('Wiki page %s was successfully published to wiki.' % (self.title))
-        mw_save_mypages(self.title)
+        mw.save_mypages(self.title)
 
 
 class MediawikerShowTocCommand(sublime_plugin.TextCommand):
@@ -1110,7 +880,7 @@ class MediawikerShowInternalLinksCommand(sublime_plugin.TextCommand):
         self.items = []
         self.regions = []
         self.regions = self.view.find_all(self.pattern)
-        self.items = [mw_strunquote(self.get_header(x)) for x in self.regions]
+        self.items = [mw.strunquote(self.get_header(x)) for x in self.regions]
         if self.items:
             sublime.set_timeout(lambda: self.view.window().show_quick_panel(self.items, self.on_select), 1)
         else:
@@ -1133,7 +903,7 @@ class MediawikerShowInternalLinksCommand(sublime_plugin.TextCommand):
         elif index == 1:
             sublime.set_timeout(lambda: self.view.window().run_command("mediawiker_page", {"action": "mediawiker_show_page", "title": self.items[self.selected]}), 1)
         elif index == 2:
-            url = mw_get_page_url(self.items[self.selected])
+            url = mw.get_page_url(self.items[self.selected])
             print("Opening URL:", url)
             webbrowser.open(url)
 
@@ -1158,7 +928,7 @@ class MediawikerShowExternalLinksCommand(sublime_plugin.TextCommand):
 
     def prepare_header(self, header):
         maxlen = 70
-        link_url = mw_strunquote(header.group(1))
+        link_url = mw.strunquote(header.group(1))
         link_descr = re.sub(r'<.*?>', '', header.group(2))
         postfix = '..' if len(link_descr) > maxlen else ''
         return '%s: %s%s' % (link_url, link_descr[:maxlen], postfix)
@@ -1204,7 +974,7 @@ class MediawikerEnumerateTocCommand(sublime_plugin.TextCommand):
                 r_new = r
             region_len = r_new.b - r_new.a
             header_text = self.view.substr(r_new)
-            level = mw_get_hlevel(header_text, "=")
+            level = mw.get_hlevel(header_text, "=")
             current_number_str = ''
             i = 1
             # generate number value, start from 1
@@ -1232,39 +1002,6 @@ class MediawikerEnumerateTocCommand(sublime_plugin.TextCommand):
             self.view.replace(edit, r_new, header_text_numbered)
 
 
-class MediawikerSetActiveSiteCommand(sublime_plugin.WindowCommand):
-    site_keys = []
-    site_on = '>'
-    site_off = ' ' * 3
-    site_active = ''
-
-    def run(self):
-        self.site_active = mw_get_setting('mediawiki_site_active')
-        sites = mw_get_setting('mediawiki_site')
-        # self.site_keys = map(self.is_checked, list(sites.keys()))
-        self.site_keys = [self.is_checked(x) for x in sites.keys()]
-        sublime.set_timeout(lambda: self.window.show_quick_panel(self.site_keys, self.on_done), 1)
-
-    def is_checked(self, site_key):
-        checked = self.site_on if site_key == self.site_active else self.site_off
-        return '%s %s' % (checked, site_key)
-
-    def on_done(self, index):
-        # not escaped and not active
-        if index >= 0 and not self.site_keys[index].startswith(self.site_on):
-            mw_set_setting("mediawiki_site_active", self.site_keys[index].strip())
-
-
-class MediawikerOpenPageInBrowserCommand(sublime_plugin.WindowCommand):
-    def run(self):
-        url = mw_get_page_url()
-        if url:
-            print("Opening URL:", url)
-            webbrowser.open(url)
-        else:
-            sublime.status_message('Can\'t open page with empty title')
-            return
-
 
 class MediawikerAddCategoryCommand(sublime_plugin.TextCommand):
     categories_list = None
@@ -1277,8 +1014,8 @@ class MediawikerAddCategoryCommand(sublime_plugin.TextCommand):
     # TODO: back in category tree..
 
     def run(self, edit, title, password):
-        self.sitecon = mw_get_connect(password)
-        self.category_root = mw_get_category(mw_get_setting('mediawiker_category_root'))[1]
+        self.sitecon = mw.get_connect(password)
+        self.category_root = mw.get_category(mw.get_setting('mediawiker_category_root'))[1]
         sublime.active_window().show_input_panel('Wiki root category:', self.category_root, self.get_category_menu, None, None)
         # self.get_category_menu(self.category_root)
 
@@ -1321,11 +1058,11 @@ class MediawikerCsvTableCommand(sublime_plugin.TextCommand):
 
     # TODO: rewrite as simple to wiki command
     def run(self, edit):
-        self.delimiter = mw_get_setting('mediawiker_csvtable_delimiter', '|')
+        self.delimiter = mw.get_setting('mediawiker_csvtable_delimiter', '|')
         table_header = '{|'
         table_footer = '|}'
-        table_properties = ' '.join(['%s="%s"' % (prop, value) for prop, value in mw_get_setting('mediawiker_wikitable_properties', {}).items()])
-        cell_properties = ' '.join(['%s="%s"' % (prop, value) for prop, value in mw_get_setting('mediawiker_wikitable_cell_properties', {}).items()])
+        table_properties = ' '.join(['%s="%s"' % (prop, value) for prop, value in mw.get_setting('mediawiker_wikitable_properties', {}).items()])
+        cell_properties = ' '.join(['%s="%s"' % (prop, value) for prop, value in mw.get_setting('mediawiker_wikitable_cell_properties', {}).items()])
         if cell_properties:
             cell_properties = ' %s | ' % cell_properties
 
@@ -1364,38 +1101,9 @@ class MediawikerCsvTableCommand(sublime_plugin.TextCommand):
         return []
 
 
-class MediawikerEditPanelCommand(sublime_plugin.WindowCommand):
-    options = []
-    SNIPPET_CHAR = u'\u24C8'
-
-    def run(self):
-        self.SNIPPET_CHAR = mw_get_setting('mediawiker_snippet_char')
-        self.options = mw_get_setting('mediawiker_panel', {})
-        if self.options:
-            office_panel_list = ['\t%s' % val['caption'] if val['type'] != 'snippet' else '\t%s %s' % (self.SNIPPET_CHAR, val['caption']) for val in self.options]
-            self.window.show_quick_panel(office_panel_list, self.on_done)
-
-    def on_done(self, index):
-        if index >= 0:
-            # escape from quick panel return -1
-            try:
-                action_type = self.options[index]['type']
-                action_value = self.options[index]['value']
-                if action_type == 'snippet':
-                    # run snippet
-                    self.window.active_view().run_command("insert_snippet", {"name": action_value})
-                elif action_type == 'window_command':
-                    # run command
-                    self.window.run_command(action_value)
-                elif action_type == 'text_command':
-                    # run command
-                    self.window.active_view().run_command(action_value)
-            except ValueError as e:
-                sublime.status_message(e)
-
 
 class MediawikerTableWikiToSimpleCommand(sublime_plugin.TextCommand):
-    ''' convert selected (or under cursor) wiki table to Simple table (TableEdit plugin) '''
+    ''' convert selected (or under cursor) wiki table to Simple table (TableEdit plugin). Command string: mediawiker_table_wiki_to_simple '''
 
     # TODO: wiki table properties will be lost now...
     def run(self, edit):
@@ -1412,10 +1120,8 @@ class MediawikerTableWikiToSimpleCommand(sublime_plugin.TextCommand):
             text = self.table_fixer(text)
             self.view.replace(edit, table_region, self.table_get(text))
             # Turn on TableEditor
-            try:
-                self.view.run_command('table_editor_enable_for_current_view', {'prop': 'enable_table_editor'})
-            except Exception as e:
-                sublime.status_message('Need to correct install plugin TableEditor: %s' % e)
+            # Note: Sublime Text 3 commands are run "outside" the current scope. Trying to catch anything is mute.
+            self.view.run_command('table_editor_enable_for_current_view', {'prop': 'enable_table_editor'})
 
     def table_get(self, text):
         tbl_row_delimiter = r'\|\-(.*)'
@@ -1526,7 +1232,7 @@ class MediawikerTableSimpleToWikiCommand(sublime_plugin.TextCommand):
         REPLACE_STR = ':::'
 
         text_wikitable = ''
-        table_properties = ' '.join(['%s="%s"' % (prop, value) for prop, value in mw_get_setting('mediawiker_wikitable_properties', {}).items()])
+        table_properties = ' '.join(['%s="%s"' % (prop, value) for prop, value in mw.get_setting('mediawiker_wikitable_properties', {}).items()])
 
         need_header = table_list[0][0]['is_header']
         is_first_line = True
@@ -1546,7 +1252,7 @@ class MediawikerTableSimpleToWikiCommand(sublime_plugin.TextCommand):
     def getrow(self, delimiter, rowlist=None):
         if rowlist is None:
             rowlist = []
-        cell_properties = ' '.join(['%s="%s"' % (prop, value) for prop, value in mw_get_setting('mediawiker_wikitable_cell_properties', {}).items()])
+        cell_properties = ' '.join(['%s="%s"' % (prop, value) for prop, value in mw.get_setting('mediawiker_wikitable_cell_properties', {}).items()])
         cell_properties = '%s | ' % cell_properties if cell_properties else ''
         try:
             return delimiter.join(' %s%s ' % (cell_properties, cell['cell_data'].strip()) for cell in rowlist)
@@ -1566,9 +1272,9 @@ class MediawikerCategoryListCommand(sublime_plugin.TextCommand):
     def run(self, edit, title, password):
         self.password = password
         if self.category_path:
-            category_root = mw_get_category(self.get_category_current())[1]
+            category_root = mw.get_category(self.get_category_current())[1]
         else:
-            category_root = mw_get_category(mw_get_setting('mediawiker_category_root'))[1]
+            category_root = mw.get_category(mw.get_setting('mediawiker_category_root'))[1]
         sublime.active_window().show_input_panel('Wiki root category:', category_root, self.show_list, None, None)
 
     def show_list(self, category_root):
@@ -1577,7 +1283,7 @@ class MediawikerCategoryListCommand(sublime_plugin.TextCommand):
         self.pages = {}
         self.pages_names = []
 
-        category_root = mw_get_category(category_root)[1]
+        category_root = mw.get_category(category_root)[1]
 
         if not self.category_path:
             self.update_category_path('%s:%s' % (self.get_category_prefix(), category_root))
@@ -1587,7 +1293,7 @@ class MediawikerCategoryListCommand(sublime_plugin.TextCommand):
 
         for page in self.get_list_data(category_root):
             if page.namespace == CATEGORY_NAMESPACE and not self.category_prefix:
-                self.category_prefix = mw_get_category(page.name)[0]
+                self.category_prefix = mw.get_category(page.name)[0]
             self.add_page(page.name, page.namespace, True)
         if self.pages:
             self.pages_names.sort()
@@ -1604,7 +1310,7 @@ class MediawikerCategoryListCommand(sublime_plugin.TextCommand):
 
     def get_list_data(self, category_root):
         ''' get objects list by category name '''
-        sitecon = mw_get_connect(self.password)
+        sitecon = mw.get_connect(self.password)
         return sitecon.Categories[category_root]
 
     def get_category_as_next(self, category_string):
@@ -1664,7 +1370,7 @@ class MediawikerSearchStringListCommand(sublime_plugin.TextCommand):
     def show_results(self, search_value=''):
         # TODO: paging?
         self.pages_names = []
-        self.search_limit = mw_get_setting('mediawiker_search_results_count')
+        self.search_limit = mw.get_setting('mediawiker_search_results_count')
         if search_value:
             self.search_result = self.do_search(search_value)
         if self.search_result:
@@ -1677,7 +1383,7 @@ class MediawikerSearchStringListCommand(sublime_plugin.TextCommand):
             te = ''
             search_number = 1
             for pa in self.pages_names:
-                te += '### %s. %s\n* [%s](%s)\n\n%s\n' % (search_number, pa[0], pa[0], mw_get_page_url(pa[0]), self.antispan(pa[1]))
+                te += '### %s. %s\n* [%s](%s)\n\n%s\n' % (search_number, pa[0], pa[0], mw.get_page_url(pa[0]), self.antispan(pa[1]))
                 search_number += 1
 
             if te:
@@ -1703,8 +1409,8 @@ class MediawikerSearchStringListCommand(sublime_plugin.TextCommand):
         return text
 
     def do_search(self, string_value):
-        sitecon = mw_get_connect(self.password)
-        namespace = mw_get_setting('mediawiker_search_namespaces')
+        sitecon = mw.get_connect(self.password)
+        namespace = mw.get_setting('mediawiker_search_namespaces')
         return sitecon.search(search=string_value, what='text', limit=self.search_limit, namespace=namespace)
 
 
@@ -1715,12 +1421,12 @@ class MediawikerAddImageCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, password, title=''):
         self.password = password
-        self.image_prefix_min_lenght = mw_get_setting('mediawiker_image_prefix_min_length', 4)
+        self.image_prefix_min_lenght = mw.get_setting('mediawiker_image_prefix_min_length', 4)
         sublime.active_window().show_input_panel('Wiki image prefix (min %s):' % self.image_prefix_min_lenght, '', self.show_list, None, None)
 
     def show_list(self, image_prefix):
         if len(image_prefix) >= self.image_prefix_min_lenght:
-            sitecon = mw_get_connect(self.password)
+            sitecon = mw.get_connect(self.password)
             images = sitecon.allpages(prefix=image_prefix, namespace=IMAGE_NAMESPACE)  # images list by prefix
             # self.images_names = map(self.get_page_title, images)
             self.images_names = [self.get_page_title(x) for x in images]
@@ -1749,7 +1455,7 @@ class MediawikerAddTemplateCommand(sublime_plugin.TextCommand):
 
     def show_list(self, image_prefix):
         self.templates_names = []
-        self.sitecon = mw_get_connect(self.password)
+        self.sitecon = mw.get_connect(self.password)
         templates = self.sitecon.allpages(prefix=image_prefix, namespace=TEMPLATE_NAMESPACE)  # images list by prefix
         for template in templates:
             self.templates_names.append(template.page_title)
@@ -1765,20 +1471,6 @@ class MediawikerAddTemplateCommand(sublime_plugin.TextCommand):
             template_text = '{{%s%s}}' % (self.templates_names[idx], params_text)
             self.view.run_command('mediawiker_insert_text', {'position': index_of_cursor, 'text': template_text})
 
-
-class MediawikerCliCommand(sublime_plugin.WindowCommand):
-
-    def run(self, url):
-        if url:
-            # print('Opening page: %s' % url)
-            sublime.set_timeout(lambda: self.window.run_command("mediawiker_page", {"action": "mediawiker_show_page", "title": self.proto_replacer(url)}), 1)
-
-    def proto_replacer(self, url):
-        if sublime.platform() == 'windows' and url.endswith('/'):
-            url = url[:-1]
-        elif sublime.platform() == 'linux' and url.startswith("'") and url.endswith("'"):
-            url = url[1:-1]
-        return url.split("://")[1]
 
 
 class MediawikerUploadCommand(sublime_plugin.TextCommand):
@@ -1799,21 +1491,21 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
     def get_destfilename(self, file_path):
         if file_path:
             self.file_path = file_path
-            file_destname = basename(file_path)
+            file_destname = os.path.basename(file_path)
             sublime.active_window().show_input_panel('Destination file name [%s]:' % (file_destname), file_destname, self.get_filedescr, None, None)
 
     def get_filedescr(self, file_destname):
         if not file_destname:
-            file_destname = basename(self.file_path)
+            file_destname = os.path.basename(self.file_path)
         self.file_destname = file_destname
         sublime.active_window().show_input_panel('File description:', '', self.on_done, None, None)
 
     def on_done(self, file_descr=''):
-        sitecon = mw_get_connect(self.password)
+        sitecon = mw.get_connect(self.password)
         if file_descr:
             self.file_descr = file_descr
         else:
-            self.file_descr = '%s as %s' % (basename(self.file_path), self.file_destname)
+            self.file_descr = '%s as %s' % (os.path.basename(self.file_path), self.file_destname)
         try:
             with open(self.file_path, 'rb') as f:
                 sitecon.upload(f, self.file_destname, self.file_descr)
@@ -1928,11 +1620,11 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
         self.files, view_image_link_options = self.parseUploadBatchText(self.text)
         # Not sure how to handle this in case of macros/repeats...
 
-        #sitecon = mw_get_connect(self.password)
+        #sitecon = mw.get_connect(self.password)
         # dict used to change how images are inserted.
         image_link_options = {'caption': '', 'options': '', 'filedescription_as_caption': False,
                               'link_fmt': '\n[[File:%(destname)s|%(options)s|%(caption)s]]\n'}
-        image_link_options.update(mw_get_setting('mediawiker_insert_image_options', {}))
+        image_link_options.update(mw.get_setting('mediawiker_insert_image_options', {}))
         # Update with options from first line of view:
         if view_image_link_options:
             image_link_options.update(view_image_link_options)
@@ -1947,7 +1639,7 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
         for row in self.files:
             filepath = row[0]
             destname = row[1] if len(row) > 1 and row[1] else os.path.basename(filepath)
-            filedesc = row[2] if len(row) > 2 else '%s as %s' % (basename(filepath), destname)
+            filedesc = row[2] if len(row) > 2 else '%s as %s' % (os.path.basename(filepath), destname)
             link_options = row[3] if len(row) > 3 else None
             link_caption = row[4] if len(row) > 4 else (filedesc if filedescription_as_caption else None)
             # Default caption to file description? There is a request to be able to use file
@@ -2035,47 +1727,20 @@ class MediawikerUploadSingleFileCommand(sublime_plugin.TextCommand):
             sublime.status_message('Upload error "%s", invalid destination file name/title "%s" for file "%s"' % (e, filepath, destname))
             self.appendText(msg)
             print(msg)
-        except Exception as e:
-            # Does this include login/login-cookie errors?
-            # Should I break the for-loop in this case?
-            print("UPLOAD ERROR:", repr(e))
-            #import traceback
-            #traceback.print_exc()
-            sublime.message_dialog('Upload error: %s' % e)
-            msg = "\n--- Other EXCEPTION '%s' while uploading file %s to destination '%s'" % (repr(e), filepath, destname)
-            self.appendText(msg)
-            print(msg)
+        #except Exception as e:
+        #    # Does this include login/login-cookie errors?
+        #    # Should I break the for-loop in this case?
+        #    print("UPLOAD ERROR:", repr(e))
+        #    #import traceback
+        #    #traceback.print_exc()
+        #    sublime.message_dialog('Upload error: %s' % e)
+        #    msg = "\n--- Other EXCEPTION '%s' while uploading file %s to destination '%s'" % (repr(e), filepath, destname)
+        #    self.appendText(msg)
+        #    print(msg)
 
 
 
-
-# Re-factoring out so I can use it elsewhere as well:
-def get_figlet_text(text):
-    font = 'colossal' # This is case *sensitive* (on *nix and if pyfiglet is zipped).
-    try:
-        from pyfiglet import Figlet
-    except ImportError:
-        print("ERROR, could not import pyfiglet, big text not available.")
-        print("sys.path=", sys.path)
-        return text
-    f = Figlet(font)
-    f.Font.smushMode = 64
-    return f.renderText(text)
-
-def adjust_figlet_todo(bigtext, header=None):
-    """ Adjust figlet to make it a 'TODO' text (indented, fixed-width). """
-    bigtext = bigtext.replace('\r\n', '\n').replace('\r', '\n').rstrip()
-    full = "\n".join("   "+line for line in bigtext.split('\n'))
-    if header:
-        # Add "TODO: xxx" line above to make searching easier.
-        full = "".join([" TODO: ", header, "\n\n", full, '\n'])
-    return full
-
-def adjust_figlet_comment(bigtext, header=''):
-    """ Adjust figlet to make it a comment. """
-    bigtext = bigtext.replace('\r\n', '\n').replace('\r', '\n').rstrip()
-    full = "".join(["<!-- ", header, "\n", bigtext, "\n-->\n"])
-    return full
+### PYFIGLET (Big text) COMMANDS ###
 
 
 class MediawikerInsertBigTextCommand(sublime_plugin.TextCommand):
@@ -2121,7 +1786,7 @@ class MediawikerInsertBigTextCommand(sublime_plugin.TextCommand):
         print("Setting self.text to: %s" % (text, ))
         self.text = text
         if self.text:
-            bigtext = get_figlet_text(self.text) # Remove last newline.
+            bigtext = mw.get_figlet_text(self.text) # Remove last newline.
             full = self.adjustText(bigtext)
             self.printText(full)
         else:
@@ -2134,7 +1799,7 @@ class MediawikerInsertBigTodoCommand(MediawikerInsertBigTextCommand):
     """
     def adjustText(self, bigtext):
         """ Can be over-written by subclasses to modify the big-text. """
-        return adjust_figlet_todo(bigtext, self.text)
+        return mw.adjust_figlet_todo(bigtext, self.text)
 
 class MediawikerInsertBigCommentCommand(MediawikerInsertBigTextCommand):
     """
@@ -2143,290 +1808,12 @@ class MediawikerInsertBigCommentCommand(MediawikerInsertBigTextCommand):
     """
     def adjustText(self, bigtext):
         """ Can be over-written by subclasses to modify the big-text. """
-        return adjust_figlet_comment(bigtext, self.text)
+        return mw.adjust_figlet_comment(bigtext, self.text)
 
 
 
-class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
-    """
-    Command string: mediawiker_new_experiment
-    Create a new experiment:
-    - exp folder, if mediawiker_experiments_basedir is specified.
-    - new wiki page (in new buffer), if mediawiker_experiments_title_fmt is boolean true.
-    - load buffer with template, if mediawiker_experiments_template
-    --- and fill in template argument, as specified by mediawiker_experiments_template_args
-    - TODO: How about making a link to the page and appending it to the experiments_overview_page
-    This is a window command, since we might not have any views open when it is invoked.
 
-    Question: Does Sublime wait for window commands to finish, or are they dispatched to run
-    asynchronously in a separate thread? ST waits for one command to finish before a new is invoked.
-    In other words: *Commands cannot be used as functions*. That makes ST plugin development a bit convoluted.
-    It is generally best to avoid any "run_command" calls, until the end of any methods/commands.
-
-    """
-
-    def run(self):
-        ### Loading all relevant settings: ###
-        # The base directory where the user stores his experiments, e.g. /home/me/documents/experiments/
-        self.exp_basedir = mw_get_setting('mediawiker_experiments_basedir')
-        self.save_page_in_exp_folder = mw_get_setting('mediawiker_experiments_save_page_in_exp_folder', False)
-        # How to format the folder, e.g. "{expid} {exp_titledesc}"
-        self.exp_foldername_fmt = mw_get_setting('mediawiker_experiments_foldername_fmt')
-        # Experiments overview page: Manually lists (and links) to all experiments.
-        self.experiments_overview_page = mw_get_setting('mediawiker_experiments_overview_page')
-        self.experiment_overview_link_format = mw_get_setting('mediawiker_experiments_overview_link_fmt', "\n* [[{}]]")
-        self.template = mw_get_setting('mediawiker_experiments_template')
-        # Constant args to feed to the template (Mostly for shared templates).
-        self.template_kwargs = mw_get_setting('mediawiker_experiments_template_kwargs', {})
-        # title format, e.g. "MyExperiments/{expid} {exp_titledesc}". If not set, no new buffer is created.
-        self.title_fmt = mw_get_setting('mediawiker_experiments_title_fmt')
-        # Which substitution mode to use:
-        # "python-format" = template.format(**kwargs), "python-%" = template % kwargs, "mediawiki" = substitute_template_params(template, kwargs)
-        self.template_subst_mode = mw_get_setting('mediawiker_experiments_template_subst_mode')
-        # Building the experiment's buffer text incrementally by hand, inserting it into the view when complete.
-        self.exp_buffer_text = ""
-
-        # Start input chain:
-        self.window.show_input_panel('Experiment ID:', '', self.expid_received, None, None)
-
-    def expid_received(self, expid):
-        """ Saves expid input and asks the user for titledesc. """
-        self.expid = expid # empty string is OK.
-        self.window.show_input_panel('Exp title desc:', '', self.exp_title_received, None, None)
-
-    def exp_title_received(self, exp_titledesc):
-        """ Saves titledesc input and asks the user for bigcomment text. """
-        self.exp_titledesc = exp_titledesc # empty string is OK.
-        self.window.show_input_panel('Big page comment:', self.expid, self.bigcomment_received, None, None)
-
-    def bigcomment_received(self, bigcomment):
-        """ Saves bigcomment input and invokes on_done. """
-        self.bigcomment = bigcomment
-        self.on_done()
-
-
-    def on_done(self, dummy=None):
-        """
-        Called when all user input have been collected.
-        """
-        # Ways to format a date/datetime as string: startdate.strftime("%Y-%m-%d"), or "{:%Y-%m-%d}".format(startdate)
-        startdate = date.today().isoformat()    # datetime.now()
-
-        if not any((self.expid, self.exp_titledesc)):
-            # If both expid and exp_title are empty, just abort:
-            print("expid and exp_titledesc are both empty, aborting...")
-            return
-
-        ## 1. Make experiment folder, if appropriate: ##
-        # If exp_foldername_fmt is not specified, use title_fmt (remove any '/' and whatever is before it)?
-        foldername_fmt = self.exp_foldername_fmt or (self.title_fmt or '').split('/')[-1]
-        if self.exp_basedir and foldername_fmt:
-            if os.path.isdir(self.exp_basedir):
-                self.foldername = foldername_fmt.format(expid=self.expid, exp_titledesc=self.exp_titledesc)
-                self.folderpath = os.path.join(self.exp_basedir, self.foldername)
-                try:
-                    os.mkdir(self.folderpath)
-                    msg = "Created new experiment directory: %s" % (self.folderpath,)
-                except FileExistsError:
-                    msg = "New exp directory already exists: %s" % (self.folderpath,)
-                except (WindowsError, OSError, IOError) as e:
-                    msg = "Error creating new exp directory '%s' :: %s" % (self.folderpath, repr(e))
-            else:
-                # We are not creating a new folder for the experiment because basedir doesn't exists:
-                msg = "Specified experiment base dir does not exists: %s" % (self.exp_basedir,)
-                self.foldername = self.folderpath = None
-            print(msg)
-            sublime.status_message(msg)
-
-        ## 2. Make new view, if title_fmt is specified: ##
-        if self.title_fmt:
-            self.pagetitle = self.title_fmt.format(expid=self.expid, exp_titledesc=self.exp_titledesc)
-            self.view = exp_view = sublime.active_window().new_file() # Make a new file/buffer/view
-            self.window.focus_view(exp_view) # exp_view is now the window's active_view
-            filename = mw_strquote(self.pagetitle)
-            view_default_dir = self.folderpath if self.save_page_in_exp_folder and self.folderpath \
-                                               else mw_get_setting('mediawiker_file_rootdir')
-            if view_default_dir:
-                print("Setting view's default dir to:", view_default_dir)
-                exp_view.settings().set('default_dir', view_default_dir) # Update the view's working dir.
-            exp_view.set_name(filename)
-            # Manually set the syntax file to use (since the view does not have a file extension)
-            self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
-        else:
-            # We are not creating a new view, use the active view:
-            self.view = exp_view = self.window.active_view()
-
-        ## 3. Create big comment text: ##
-        if self.bigcomment:
-            exp_figlet_comment = get_figlet_text(self.bigcomment) # Makes the big figlet text
-            self.exp_buffer_text += adjust_figlet_comment(exp_figlet_comment, self.foldername or self.bigcomment) # Adjusts the figlet to produce a comment
-
-        ## 4. Generate template : ##
-        if self.template:
-            # Load the template: #
-            if os.path.isfile(self.template):
-                # User specified a local file:
-                print("Using template:", self.template)
-                with open(self.template) as fd:
-                    template_content = fd.read()
-                print("Template length:", len(template_content))
-            else:
-                # Assume template is a page on the server:
-                # This will load the page into the window's active_view (asking for password, if required):
-                # We have to manually obtain the template and do variable substitution
-                #self.window.run_command("mediawiker_validate_connection_params", {"title": self.pagetitle, "action": 'mediawiker_show_page'})
-                raise NotImplementedError("Obtaining templates from the server is not yet implemented...")
-
-            # Perform template substitution (locally): #
-            # Update kwargs with user input and today's date:
-            self.template_kwargs.update({'expid': self.expid, 'exp_titledesc': self.exp_titledesc, 'startdate': startdate, 'date': startdate})
-            if self.template_subst_mode == 'python-fmt':
-                # template_kwargs must be dict/mapping: (template_args_order no longer supported)
-                template_content = template_content.format(**self.template_kwargs)
-            elif self.template_subst_mode == 'python-%':
-                # "%s" string interpolation: template_vars must be tuple or dict (both will work):
-                template_content = template_content % self.template_kwargs
-            elif self.template_subst_mode in ('mediawiki', 'wiki', None) or True: # This is currently the default. Allows me to use wiki templates as local templates.
-                # Use custom wiki template variable insertion function:
-                # Get template args (defaults)  -- edit: I just use keep_unmatched=True.
-                #template_params = get_template_params_dict(template_content, defaultvalue='')
-                #print("Parameters in template:", template_params)
-                #template_params.update(self.template_kwargs)
-                template_content = substitute_template_params(template_content, self.template_kwargs, keep_unmatched=True)
-
-            # Add template to buffer text string:
-            self.exp_buffer_text = "".join(text.strip() for text in (self.exp_buffer_text, template_content))
-
-        else:
-            print('No template specified (settings key "mediawiker_experiments_template").')
-
-
-        ## 6. Append self.exp_buffer_text to the view: ##
-        exp_view.run_command('mediawiker_insert_text', {'position': exp_view.size(), 'text': self.exp_buffer_text})
-
-        ## 7. Add a link to experiments_overview_page (local file): ##
-        if self.experiments_overview_page:
-            # Generate a link to this experiment:
-            if self.pagetitle:
-                link_text = self.experiment_overview_link_format.format(self.pagetitle)
-            else:
-                # Add a link to the current buffer's title, assuming the experiment header is the same as self.foldername
-                link = "{}#{}".format(mw_get_title(), self.foldername.replace(' ', '_'))
-                link_text = self.experiment_overview_link_format.format(link)
-
-            # Insert link on experiments_overview_page. Currently, this must be a local file.
-            # (We just edit the file on disk and let ST pick up the change if the file is opened in any view.)
-            if os.path.isfile(self.experiments_overview_page):
-                print("Adding link '%s' to file '%s'" % (link_text, self.experiments_overview_page))
-                # We have a local file, append link:
-                with open(self.experiments_overview_page, 'a') as fd:
-                    # In python3, there is a bigger difference between binary 'b' mode and normal (text) mode.
-                    # Do not open in binary 'b' mode when writing/appending strings. It is not supported in python 3.
-                    # If you want to write strings to files opened in binary mode, you have to cast the string to bytes / encode it:
-                    # >>> fd.write(bytes(mystring, 'UTF-8')) *or* fd.write(mystring.encode('UTF-8'))
-                    fd.write(link_text) # The format should include newline if desired.
-                print("Appended %s chars to file '%s" % (len(link_text), self.experiments_overview_page))
-            else:
-                # User probably specified a page on the wiki. (This is not yet supported.)
-                # Even if this is a page on the wiki, you should check whether that page is already opened in Sublime.
-                ## TODO: Implement specifying experiments_overview_page from server.
-                print("Using experiment_overview_page from the server is not yet supported.")
-
-        print("MediawikerNewExperimentCommand completed!\n")
-
-
-class MediawikerFavoritesAddCommand(sublime_plugin.WindowCommand):
-    """ Add current page to the favorites list. Command string: mediawiker_favorites_add  (WindowCommand) """
-    def run(self):
-        title = mw_get_title()
-        mw_save_mypages(title=title, storage_name='mediawiker_favorites')
-
-
-class MediawikerFavoritesOpenCommand(sublime_plugin.WindowCommand):
-    """
-    Open page from the favorites list.
-    Command string: mediawiker_favorites_open (WindowCommand)
-    """
-    def run(self):
-        self.window.run_command("mediawiker_page_list", {"storage_name": 'mediawiker_favorites'})
-
-
-def get_site_params(name=None):
-    if name is None:
-        name = mw_get_setting('mediawiki_site_active')
-    sites = mw_get_setting('mediawiki_site')
-    return sites[name]
-
-def get_login_cookie(cookie_key='open_id_session_id', site_name=None, default=None):
-    site_params = get_site_params(site_name)
-    try:
-        return site_params['cookies'][cookie_key]
-    except KeyError:
-        return default
-
-def set_login_cookie(value, cookie_key='open_id_session_id', site_name=None):
-    site_params = get_site_params(site_name)
-    site_params['cookies'][cookie_key] = value
-    print("Updated site_params:")
-    print(site_params)
-    # mw_save_settings()
-    # sublime.save_settings('Mediawiker.sublime-settings')
-    # Above doesn't seem to work, attempting manual:
-    # Uhm... what is the settings object exactly? Is it a simple dict or something more stupid?
-    # Indeed. It is a sublime.Settings object, which is just a thin wrapper around
-    # sublime_api.settings_*(self.settings_id, ...) functions
-    settings = sublime.load_settings('Mediawiker.sublime-settings')
-    if site_name is None:
-        site_name = settings.get('mediawiki_site_active')
-    sites = settings.get('mediawiki_site')
-    print("Re-loaded site_params:")
-    print(sites[site_name])
-    sites[site_name]['cookies'][cookie_key] = value
-    settings.set('mediawiki_site', sites)
-    sublime.save_settings('Mediawiker.sublime-settings')
-
-
-
-class MediawikerSetLoginCookie(sublime_plugin.WindowCommand):
-    """
-    Set login cookie.
-    Command string: mediawiker_set_login_cookie (WindowCommand)
-    """
-    def run(self):
-        current_cookie = get_login_cookie(default='')
-        # show_input_panel(caption, initial_text, on_done, on_change, on_cancel)
-        self.window.show_input_panel('Set login cookie:', current_cookie, self.on_done, None, None)
-    def on_done(self, text):
-        if not text:
-            msg = "No cookie input..."
-        else:
-            set_login_cookie(text)
-            msg = "Login cookie set :)"
-        print(msg)
-
-
-class MediawikerSavePageCommand(sublime_plugin.WindowCommand):
-    """
-    The default 'save' behaviour, invoked with e.g. ctrl+s (cmd+s) should be
-    user-customizable, and certainly NOT override the user's ability to save the buffer
-    using the normal ctrl+s keyboard shortcut.
-
-    I, for one, hit ctrl+s every ten seconds or so, just out of habit.
-    I *do not* want Mediawiker to push the page to the server that often (thus cluttering the history).
-    I keep a local copy of the file during editing (which is synchronized via Dropbox
-    to other running ST instances on other computers - works perfectly).
-
-    Perhaps it is better to use an EventListener and use on_pre/post_save hooks to
-    alter ctrl+s behaviour? Is that what the MediawikerLoad EventListener below is trying to do?
-    """
-    def run(self):
-        on_save_action = mw_get_setting('mediawiker_on_save_action')
-        # on_save_action can be a string or list, specifying what actions to take:
-        if 'savefile' in on_save_action:
-            # How do you save the view buffer?
-            pass
-        if 'publish' in on_save_action:
-            self.window.run_command("mediawiker_page", {"action": "mediawiker_publish_page"})
+#######  EVENT LISTENERS   #########
 
 
 class MediawikerLoad(sublime_plugin.EventListener):
@@ -2448,4 +1835,4 @@ class MediawikerLoad(sublime_plugin.EventListener):
         if view.settings().get('syntax').endswith('Mediawiker/Mediawiki.tmLanguage'):
             # Mediawiki mode
             view.settings().set('mediawiker_is_here', True)
-            view.settings().set('mediawiker_wiki_instead_editor', mw_get_setting('mediawiker_wiki_instead_editor'))
+            view.settings().set('mediawiker_wiki_instead_editor', mw.get_setting('mediawiker_wiki_instead_editor'))
