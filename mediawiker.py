@@ -69,6 +69,7 @@ if sys.version_info[0] >= 3:
     #     import mwclient
     # else:
     #     from . import mwclient
+    from . import mwclient
     from .mwclient import errors
     from . import mwutils as mw
 else:
@@ -767,7 +768,12 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
     if required by invoking MediawikerValidateConnectionParamsCommand).
     """
     def run(self, edit, title, password):
-        sitecon = mw.get_connect(password)
+        try:
+            sitecon = mw.get_connect(password)
+        except (mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
+            msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired.'
+            sublime.status_message(msg)
+            return
         is_writable, text = mw.get_page_text(sitecon, title)
         self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
         self.view.settings().set('mediawiker_is_here', True)

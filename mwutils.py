@@ -154,10 +154,10 @@ def set_login_cookie(value, cookie_key='open_id_session_id', site_name=None):
     if site_name is None:
         site_name = settings.get('mediawiki_site_active')
     sites = settings.get('mediawiki_site')
-    print("Re-loaded site_params:")
-    print(sites[site_name])
+    #print("Re-loaded site_params:")
+    #print(sites[site_name])    # This was just to prove that the above doesn't work...
     sites[site_name]['cookies'][cookie_key] = value
-    settings.set('mediawiki_site', sites)
+    settings.set('mediawiki_site', sites)   # Saving the complete 'mediawiki_site' entry, otoh, will persist the change.
     sublime.save_settings('Mediawiker.sublime-settings')
 
 
@@ -281,7 +281,7 @@ def get_connect(password=''):
         # CookieJar is a subclass of dict. I've changed it's __init__ so you can initialize it as a dict.
         # connection.post(<host>, ...) finds the host in the connection pool,
         sitecon = mwclient.Site(host=host, path=path, inject_cookies=inject_cookies)
-    except errors.HTTPStatusError as exc:
+    except (mwclient.HTTPStatusError, errors.HTTPStatusError) as exc:
         e = exc.args if PYTHONVER >= 3 else exc     # pylint: disable=W0621
         is_use_http_auth = site_params.get('use_http_auth', False)
         http_auth_login = site_params.get('http_auth_login', '')
@@ -312,9 +312,11 @@ def get_connect(password=''):
         else:
             sublime.status_message('HTTP connection failed: %s' % e[1])
             raise Exception('HTTP connection failed.')
-    except errors.HTTPRedirectError as exc:
+    except (mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
         # if redirect to '/login.php' page:
-        sublime.status_message('Connection to server failed. If you are logging in with an open_id session cookie, it may have expired. (HTTPRedirectError)')
+        msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired. (HTTPRedirectError: %s)' % exc
+        print(msg)
+        sublime.status_message(msg)
         raise exc
 
 
