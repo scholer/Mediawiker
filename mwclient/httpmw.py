@@ -3,24 +3,14 @@
 
 
 from __future__ import print_function
-FOR_MEDIAWIKER = True
 import sys
 pythonver = sys.version_info[0]
 
 
 if pythonver >= 3:
-    import urllib.request as urllib_compat  # , urllib.error    # pylint: disable=F0401,E0611
-    import urllib.parse as urlparse_compat                      # pylint: disable=F0401,E0611
-    import http.client as http_compat                           # pylint: disable=F0401
-
-    if FOR_MEDIAWIKER and sys.platform.startswith('linux'):
-        # for mediawiker's ssl under linux under sublime 3
-        # ssl was loaded from mediawiker
-        # under sublime 3 needs to reload ssl required modules
-        import imp      # I don't want to overwrite builtin reload()
-        imp.reload(http_compat)
-        print('Mediawiker: http_compat reloaded.')
-
+    import urllib.request as urllib_compat  # , urllib.error
+    import urllib.parse as urlparse_compat
+    import http.client as http_compat
 else:
     import urllib2 as urllib_compat
     import urlparse as urlparse_compat
@@ -117,8 +107,6 @@ class HTTPPersistentConnection(object):
         if pool is not None:
             #print("DEBUG: Using existing pool's dict of cookiejars:")
             self.cookies = pool.cookies
-        #print("DEBUG: pool=%s, bool(pool)=%s" % (pool, bool(pool)))
-        #print("DEBUG: self.pool=%s, self.cookies=%s" % (pool, self.cookies))
         self._conn = self.http_class(host)
         self._conn.connect()
         self.last_request = time.time()
@@ -155,8 +143,6 @@ class HTTPPersistentConnection(object):
 
         if _headers:
             headers.update(_headers)
-        #print("DEBUG: self=%s, headers=%s, data='%s', host='%s', path='%s'" % (self, headers, data, host, path))
-        print("DEBUG: self.cookies=%s" % self.cookies)
 
         try:
             self._conn.request(method, path, headers=headers)
@@ -190,8 +176,6 @@ class HTTPPersistentConnection(object):
         if not host in self.cookies:
             self.cookies[host] = CookieJar()
         self.cookies[host].extract_cookies(res)
-
-        print("DEBUG: res=%s, res.status=%s, res.__dict__=%s" % (res, res.status, res.__dict__))
 
         if res.status >= 300 and res.status <= 399 and auto_redirect:
             res.read()
@@ -266,8 +250,6 @@ class HTTPSPersistentConnection(HTTPPersistentConnection):
     try:
         http_class = http_compat.HTTPSConnection
         scheme_name = 'https'
-        if FOR_MEDIAWIKER and sys.platform.startswith('linux'):
-            print('Mediawiker: HTTPS is available.')
     except Exception as e:
         print('HTTPS is not available in this python environment, trying http: %s' % e)
         http_class = http_compat.HTTPConnection

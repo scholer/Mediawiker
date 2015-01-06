@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 ##    Copyright 2013 Rasmus Scholer Sorensen, rasmusscholer@gmail.com
 ##
@@ -14,7 +14,7 @@
 ##
 ##    You should have received a copy of the GNU General Public License
 ##
-# pylint: disable=W0212,R0903,C0103,W0201
+# pylintx: disable=W0212,R0903,C0103,W0201
 
 # Parts of this code is copyright by Chris Arndt
 # © 2011 Christopher Arndt, MIT License

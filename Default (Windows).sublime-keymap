@@ -13,4 +13,5 @@
     { "keys": ["alt+shift+f5"], "command": "mediawiker_ask_reopen_page", "context": [{"key": "setting.mediawiker_is_here", "operand": true}] },
     { "keys": ["ctrl+b"], "command": "insert_snippet", "args": {"name": "Packages/Mediawiker/snippets/mw_bold.sublime-snippet"}, "context": [{"key": "setting.mediawiker_is_here", "operand": true}] },
     { "keys": ["ctrl+i"], "command": "insert_snippet", "args": {"name": "Packages/Mediawiker/snippets/mw_italic.sublime-snippet"}, "context": [{"key": "setting.mediawiker_is_here", "operand": true}] },
+    { "keys": ["ctrl+alt+k"], "command": "insert_snippet", "args": {"name": "Packages/Mediawiker/snippets/mw_kbd.sublime-snippet"},"context": [{"key": "setting.mediawiker_is_here", "operand": true}] }
 ]

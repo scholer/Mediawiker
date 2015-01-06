@@ -22,13 +22,6 @@ PYTHONVER = sys.version_info[0]
 
 # Load local modules:
 if PYTHONVER >= 3:
-    # NOTE: load from package, not used now because custom ssl
-    # current_dir = dirname(__file__)
-    # if '.sublime-package' in current_dir:
-    #     sys.path.append(current_dir)
-    #     import mwclient
-    # else:
-    #     from . import mwclient
     from . import mwclient
     from .mwclient import errors
     from .lib.cache_decorator import cached_property
@@ -625,3 +618,24 @@ def substitute_template_params(template, params, defaultvalue='', keep_unmatched
         def repl(match):
             return params.get(match.group(1), defaultvalue)
     return re.sub(pattern, repl, template)
+
+
+
+
+class PasswordHider():
+
+    password = ''
+    PASSWORD_CHAR = u'\u25CF'
+
+    def hide(self, password):
+        if len(password) < len(self.password):
+            self.password = self.password[:len(password)]
+        else:
+            try:
+                self.password = '%s%s' % (self.password, password.replace(self.PASSWORD_CHAR, ''))
+            except:
+                pass
+        return self.PASSWORD_CHAR * len(self.password)
+
+    def done(self):
+        return self.password

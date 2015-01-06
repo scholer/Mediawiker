@@ -47,6 +47,7 @@ import os
 import sys
 import webbrowser
 import re
+import base64
 import sublime
 import sublime_plugin
 from datetime import date
@@ -58,7 +59,6 @@ if int(sublime.version()) > 3000:
 else:
     st_version = 2
     FileExistsError = WindowsError  # pylint: disable=W0622
-
 
 # Load local modules, depending on PYTHONVER = sys.version_info[0]
 if sys.version_info[0] >= 3:
@@ -89,8 +89,6 @@ TEMPLATE_NAMESPACE = 10  # template namespace number
 
 # Module-level site manager:
 sitemgr = mw.SiteconnMgr()
-
-
 
 ##### WINDOW COMMANDS #######
 
@@ -681,7 +679,6 @@ class MediawikerFavoritesOpenCommand(sublime_plugin.WindowCommand):
         self.window.run_command("mediawiker_page_list", {"storage_name": 'mediawiker_favorites'})
 
 
-
 class MediawikerSetLoginCookie(sublime_plugin.WindowCommand):
     """
     Set login cookie.
@@ -772,13 +769,17 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
     def run(self, edit, title, password):
         sitecon = mw.get_connect(password)
         is_writable, text = mw.get_page_text(sitecon, title)
-        if is_writable and not text:
-            sublime.status_message('Wiki page %s is not exists. You can create new..' % (title))
-            text = '<New wiki page: Remove this with text of the new page>'
+        self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
+        self.view.settings().set('mediawiker_is_here', True)
+        self.view.settings().set('mediawiker_wiki_instead_editor', mw.get_setting('mediawiker_wiki_instead_editor'))
+        self.view.set_name(title)
+
         if is_writable:
+            if not text:
+                sublime.status_message('Wiki page %s is not exists. You can create new..' % (title))
+                text = '<!-- New wiki page: Remove this with text of the new page -->'
+            # insert text
             self.view.erase(edit, sublime.Region(0, self.view.size()))
-            self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
-            self.view.set_name(title)
             if mw.get_setting('mediawiker_title_to_filename', True):
                 # If mediawiker_title_to_filename is specified, the title is cast to a
                 # "filesystem friendly" alternative by quoting. When posting, this is converted
@@ -801,7 +802,7 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
                     self.view.set_name(filename)
             #self.view._wikipage_title = title # Save this.
             self.view.run_command('mediawiker_insert_text', {'position': 0, 'text': text})
-            sublime.status_message('Page %s was opened successfully into view "%s".' % (title, self.view.name()))
+        sublime.status_message('Page %s was opened successfully into view "%s".' % (title, self.view.name()))
 
 
 
@@ -1001,6 +1002,38 @@ class MediawikerEnumerateTocCommand(sublime_plugin.TextCommand):
             len_delta += len(header_text_numbered) - region_len
             self.view.replace(edit, r_new, header_text_numbered)
 
+
+class MediawikerSetActiveSiteCommand(sublime_plugin.WindowCommand):
+    site_keys = []
+    site_on = '>'
+    site_off = ' ' * 3
+    site_active = ''
+
+    def run(self):
+        self.site_active = mw.get_setting('mediawiki_site_active')
+        sites = mw.get_setting('mediawiki_site')
+        # self.site_keys = map(self.is_checked, list(sites.keys()))
+        self.site_keys = [self.is_checked(x) for x in sites.keys()]
+        sublime.set_timeout(lambda: self.window.show_quick_panel(self.site_keys, self.on_done), 1)
+
+    def is_checked(self, site_key):
+        checked = self.site_on if site_key == self.site_active else self.site_off
+        return '%s %s' % (checked, site_key)
+
+    def on_done(self, index):
+        # not escaped and not active
+        if index >= 0 and not self.site_keys[index].startswith(self.site_on):
+            mw.set_setting("mediawiki_site_active", self.site_keys[index].strip())
+
+
+class MediawikerOpenPageInBrowserCommand(sublime_plugin.WindowCommand):
+    def run(self):
+        url = mw_get_page_url()
+        if url:
+            webbrowser.open(url)
+        else:
+            sublime.status_message('Can\'t open page with empty title')
+            return
 
 
 class MediawikerAddCategoryCommand(sublime_plugin.TextCommand):
@@ -1465,7 +1498,7 @@ class MediawikerAddTemplateCommand(sublime_plugin.TextCommand):
         if idx >= 0:
             template = self.sitecon.Pages['Template:%s' % self.templates_names[idx]]
             text = template.edit()
-            params_text = self.get_template_params(text)
+            params_text = mw.get_template_params_str(text)
             index_of_cursor = self.view.sel()[0].begin()
             # Create "{{myTemplate:}}
             template_text = '{{%s%s}}' % (self.templates_names[idx], params_text)
@@ -1832,7 +1865,53 @@ class MediawikerLoad(sublime_plugin.EventListener):
         of F5 to reopen page:
             "keys": ["f5"], "command": "mediawiker_reopen_page", "context": [{"key": "setting.mediawiker_is_here", "operand": true}]
         """
-        if view.settings().get('syntax').endswith('Mediawiker/Mediawiki.tmLanguage'):
+        if view.settings().get('syntax') is not None and view.settings().get('syntax').endswith('Mediawiker/Mediawiki.tmLanguage'):
             # Mediawiki mode
             view.settings().set('mediawiker_is_here', True)
             view.settings().set('mediawiker_wiki_instead_editor', mw.get_setting('mediawiker_wiki_instead_editor'))
+
+
+class MediawikerCompletionsEvent(sublime_plugin.EventListener):
+
+    def check_tab(self, view):
+        mw_here = view.settings().get('mediawiker_is_here', False)
+        if mw_here:
+            return True
+        return False
+
+    def on_query_completions(self, view, prefix, locations):
+        if self.check_tab(view):
+            view = sublime.active_window().active_view()
+
+            # internal links completions
+            cursor_position = view.sel()[0].begin()
+            line_region = view.line(view.sel()[0])
+            line_before_position = view.substr(sublime.Region(line_region.a, cursor_position))
+            internal_link = ''
+            if line_before_position.rfind('[[') > line_before_position.rfind(']]'):
+                internal_link = line_before_position[line_before_position.rfind('[[') + 2:]
+
+            completions = []
+            if internal_link:
+                word_cursor_min_len = mw.get_setting('mediawiker_page_prefix_min_length', 3)
+                if len(internal_link) >= word_cursor_min_len:
+                    namespaces = [ns.strip() for ns in mw.get_setting('mediawiker_search_namespaces').split(',')]
+                    sitecon = mw_get_connect()
+                    pages = []
+                    for ns in namespaces:
+                        pages = sitecon.allpages(prefix=internal_link, namespace=ns)
+                        for p in pages:
+                            # name - full page name with namespace
+                            # page_title - title of the page wo namespace
+                            # For (Main) namespace, shows [page_title (Main)], makes [[page_title]]
+                            # For other namespace, shows [page_title namespace], makes [[name|page_title]]
+                            if int(ns):
+                                ns_name = p.name.split(':')[0]
+                                page_insert = '%s|%s' % (p.name, p.page_title)
+                            else:
+                                ns_name = '(Main)'
+                                page_insert = p.page_title
+                            page_show = '%s\t%s' % (p.page_title, ns_name)
+                            completions.append((page_show, page_insert))
+
+            return completions
