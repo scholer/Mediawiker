@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# pylint: disable=invalid-name,line-too-long
+
 """
 
 Utility module for Mediawikier package.
@@ -15,6 +17,7 @@ import urllib
 import base64
 from hashlib import md5
 import uuid
+import re
 
 import sublime
 
