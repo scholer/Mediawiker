@@ -72,11 +72,15 @@ if sys.version_info[0] >= 3:
     from . import mwclient
     from .mwclient import errors
     from . import mwutils as mw
-    from .lib.cookieshop.chrome_extract import get_chrome_cookies
+    try:
+        from .lib.cookieshop.chrome_extract import get_chrome_cookies
+    except ImportError as exc:
+        print("ImportError while importing .lib.cookieshop.chrome_extract module:", exc)
+        print("- get_chrome_cookies function will not be available...")
 else:
     from mwclient import errors
     import mwutils as mw
-    from lib.cookieshop import chrome_extract
+    from lib.cookieshop.chrome_extract import get_chrome_cookies
 
 
 # Initialize logging system (only kicks in if not initialized already...)
@@ -102,6 +106,7 @@ sitemgr = mw.SiteconnMgr()
 ##  ##  ##  ##  ##  #### ##     ## ##     ## ##  ##  ##    ##       ##     ## ##     ##       ##
 ##  ##  ##  ##  ##   ### ##     ## ##     ## ##  ##  ##    ##    ## ##     ## ##     ## ##    ##
  ###  ###  #### ##    ## ########   #######   ###  ###      ######  ##     ## ########   ######
+
 
 class MediawikerTestCmdCommand(sublime_plugin.WindowCommand):
     """

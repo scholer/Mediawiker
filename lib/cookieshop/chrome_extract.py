@@ -95,9 +95,12 @@ except ImportError:
     # https://github.com/ghaering/pysqlite  (https://docs.python.org/2/library/sqlite3.html) -- is C code...
     # pypi.python.org/pypi/PyDbLite , www.pydblite.net/en/index.html -- pure python, but a tad different from sqlite3.
     # from pydblite import sqlite # pydblite relies on built-in sqlite3 or pysqlite2...
-    from .sqlite3_adhoc import sqlite3
-    print("chrome_extract: Using sqlite3_adhoc replacement module...")
-
+    try:
+        from .sqlite3_adhoc import sqlite3
+        print("chrome_extract: Using sqlite3_adhoc replacement module...")
+    except ImportError as exc:
+        print("ImportError while importing sqlite3 stand-in module:", exc)
+        raise exc
 
 try:
     from Crypto.Cipher import AES
@@ -168,17 +171,18 @@ except ImportError:
         return _PBKDF2(my_pass, salt, iterations).hexread(length)
 
 # Windows decryption.
-try:
-    import win32crypt
-except ImportError:
-    #warnings.warn("Could not import win32crypt module. If you are on Windows, please install the pywin32 package.")
-    win32crypt = None
-    from .wincrypt_understudy import decrypt as win_decrypt  # Seems good enough...
+if sys.platform == 'win32':
+    try:
+        import win32crypt
+    except ImportError:
+        win32crypt = None
+        from .wincrypt_understudy import decrypt as win_decrypt  # Seems good enough...
 
 
+
+## ENCRYPTION CONSTANTS ##
 
 crypt_iv = b' ' * 16
-
 
 
 
