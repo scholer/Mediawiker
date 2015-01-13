@@ -72,9 +72,11 @@ if sys.version_info[0] >= 3:
     from . import mwclient
     from .mwclient import errors
     from . import mwutils as mw
+    from .lib.cookieshop.chrome_extract import get_chrome_cookies
 else:
     from mwclient import errors
     import mwutils as mw
+    from lib.cookieshop import chrome_extract
 
 
 # Initialize logging system (only kicks in if not initialized already...)
@@ -685,17 +687,58 @@ class MediawikerSetLoginCookie(sublime_plugin.WindowCommand):
     Set login cookie.
     Command string: mediawiker_set_login_cookie (WindowCommand)
     """
-    def run(self):
-        current_cookie = mw.get_login_cookie(default='')
+    def run(self, new_cookie=None):
+        if new_cookie is None:
+            new_cookie = current_cookie = mw.get_login_cookie(default='')
         # show_input_panel(caption, initial_text, on_done, on_change, on_cancel)
-        self.window.show_input_panel('Set login cookie:', current_cookie, self.on_done, None, None)
-    def on_done(self, text):
-        if not text:
+        self.window.show_input_panel('Set login cookie:', new_cookie, self.on_done, None, None)
+    def on_done(self, new_cookie):
+        if not new_cookie:
             msg = "No cookie input..."
         else:
-            mw.set_login_cookie(text)
+            mw.set_login_cookie(new_cookie)
             msg = "Login cookie set :)"
         print(msg)
+        sublime.status_message(msg)
+
+
+class MediawikerExtractChromeLoginCookie(sublime_plugin.WindowCommand):
+    """
+    Extract login cookie from chrome's cookie database.
+    Command string: mediawiker_extract_chrome_login_cookie (WindowCommand)
+    argument <user_confirm> toggles whether the user is prompted with
+    the updated cookie before it is updated in site_params.
+    """
+    def run(self, user_confirm=True):
+        cookie_key, current_cookie = mw.get_login_cookie_key_and_value()
+        msg = None
+        if cookie_key is None:
+            msg = "No login cookie defined in site params, aborting!"
+            print(msg)
+            sublime.status_message(msg)
+            return
+        site_params = mw.get_site_params()
+        chrome_cookies = get_chrome_cookies(url=site_params['host'])
+        if not chrome_cookies or cookie_key not in chrome_cookies:
+            if not chrome_cookies:
+                msg = "No cookies for domain %s could be obtained from Chrome, aborting!" % site_params['host']
+            else:
+                msg = "%s cookies found for domain %s, but none with key '%s', aborting!" % \
+                      (len(chrome_cookies), site_params['host'], cookie_key)
+            print(msg)
+            sublime.status_message(msg)
+            return
+        # show_input_panel(caption, initial_text, on_done, on_change, on_cancel)
+        new_cookie = chrome_cookies[cookie_key]
+        if new_cookie == current_cookie:
+            msg = "Login cookie already matches Chrome's login cookie!"
+            print(msg)
+            sublime.status_message(msg)
+            return
+        if user_confirm:
+            self.window.run_command('mediawiker_set_login_cookie', {'new_cookie': new_cookie})
+        else:
+            mw.set_login_cookie(new_cookie)
 
 
 class MediawikerSavePageCommand(sublime_plugin.WindowCommand):

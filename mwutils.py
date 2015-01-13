@@ -133,6 +133,29 @@ def get_site_params(name=None):
     sites = get_setting('mediawiki_site')
     return sites[name]
 
+
+def get_login_cookie_key_and_value(site_name=None, cookie_key=None):
+    """ Used to get the name of the cookie used as login cookie. """
+    ## TODO: Implement get_login_cookie_key better.
+    site_params = get_site_params(site_name)
+    try:
+        cookies = site_params['cookies']
+    except KeyError:
+        return None, None
+    if not cookies:
+        return None, None
+    if len(cookies) == 1:
+        return next((k, v) for k, v in cookies.items())
+    if cookie_key is None:
+        if 'login_cookie_name' in site_params:
+            cookie_key = site_params['login_cookie_name']
+        elif 'open_id_session_id' in cookies:
+            cookie_key = 'open_id_session_id'
+        else:
+            return None, None
+    return cookie_key, cookies[cookie_key]
+
+
 def get_login_cookie(cookie_key='open_id_session_id', site_name=None, default=None):
     """ Get login cookie for active site, or site <site_name> if specified. """
     site_params = get_site_params(site_name)

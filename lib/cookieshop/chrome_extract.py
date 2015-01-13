@@ -95,7 +95,7 @@ except ImportError:
     # https://github.com/ghaering/pysqlite  (https://docs.python.org/2/library/sqlite3.html) -- is C code...
     # pypi.python.org/pypi/PyDbLite , www.pydblite.net/en/index.html -- pure python, but a tad different from sqlite3.
     # from pydblite import sqlite # pydblite relies on built-in sqlite3 or pysqlite2...
-    import sqlite3_adhoc as sqlite3
+    from .sqlite3_adhoc import sqlite3
     print("chrome_extract: Using sqlite3_adhoc replacement module...")
 
 
@@ -173,7 +173,7 @@ try:
 except ImportError:
     #warnings.warn("Could not import win32crypt module. If you are on Windows, please install the pywin32 package.")
     win32crypt = None
-    from wincrypt_understudy import decrypt as win_decrypt  # Seems good enough...
+    from .wincrypt_understudy import decrypt as win_decrypt  # Seems good enough...
 
 
 
