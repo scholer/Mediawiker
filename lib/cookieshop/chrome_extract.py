@@ -168,7 +168,7 @@ except ImportError:
     except ImportError:
         from pbkdf2 import PBKDF2 as _PBKDF2
     def PBKDF2(my_pass, salt, length, iterations):
-        return _PBKDF2(my_pass, salt, iterations).hexread(length)
+        return _PBKDF2(my_pass, salt, iterations).read(length)
 
 # Windows decryption.
 if sys.platform == 'win32':
@@ -235,7 +235,7 @@ def make_chrome_cryptkey():
     # If running Chrome on OSX
     if sys.platform == 'darwin':
         my_pass = keyring.get_password('Chrome Safe Storage', 'Chrome')
-        my_pass = my_pass.encode('utf8')
+        my_pass = my_pass.encode('utf8') # Ensure bytearray
         iterations = 1003
     # If running Chromium on Linux
     elif sys.platform == 'linux':
@@ -245,6 +245,7 @@ def make_chrome_cryptkey():
         raise Exception("This script only works on OSX or Linux.")
 
     # Generate key from values above
+    # All inputs should be bytearrays or integers.
     key = PBKDF2(my_pass, salt, length, iterations)
     return key
 
@@ -267,7 +268,7 @@ def chrome_decrypt(encrypted_value, key=None):
         return decrypted.decode('utf-8')
 
     # Encrypted cookies should be prefixed with 'v10' according to the Chromium code. Strip it off.
-    # (Only for OSX/Linux...?)
+    # (Only for OSX/Linux, c.f. <chromium code base>//src/components/os_crypt/os_crypt_mac.mm)
     encryption_scheme_version, encrypted_value = encrypted_value[:3], encrypted_value[3:]
 
     # Strip padding by taking off number indicated by padding
@@ -278,6 +279,11 @@ def chrome_decrypt(encrypted_value, key=None):
         return x[:-x[-1]].decode('utf8')
 
     cipher = AES.new(key, AES.MODE_CBC, IV=crypt_iv)
+    # Debugging note: cipher is state-full.
+    # Every time you invoke cipher.encrypt(...) it will return something different.
+    # Same goes for cipher.decrypt(...).
+    # That also means that you cannot use the same cipher to first encrypt and
+    # then decrypt, unless you have the same number of bytes before.
     decrypted = cipher.decrypt(encrypted_value)
     return clean(decrypted)
 
@@ -340,6 +346,10 @@ def query_db(dbpath, query):
 
     return res
 
+def query_cookies_db(query):
+    """ Convenience function... """
+    return query_db(cookies_dbpath, query)
+
 
 def get_chrome_logins():
     """
@@ -383,6 +393,7 @@ def get_chrome_cookies(url, filter=None):
         print("Filtering...")
         cookie_entries = [(k, v, ev) for k, v, ev in cookie_entries if filter(k)]
     print("Decrypting cookies:")
+    # Make sure *all* inputs are bytearrays, including key:
     cookies_dict = {k: chrome_decrypt(ev, key=key) if ev else v for k, v, ev in cookie_entries}
     return cookies_dict
 
