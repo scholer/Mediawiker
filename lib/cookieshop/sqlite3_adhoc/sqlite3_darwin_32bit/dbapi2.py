@@ -23,7 +23,7 @@
 import datetime
 import time
 
-from _sqlite3 import *
+from ._sqlite3 import *
 
 paramstyle = "qmark"
 

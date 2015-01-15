@@ -47,7 +47,7 @@ class Python_AES(AES):
     def decrypt(self, ciphertext):
         AES.decrypt(self, ciphertext)
 
-        ciphertextBytes = ciphertext[:]
+        ciphertextBytes = bytearray(ciphertext)
         chainBytes = self.IV[:]
 
         #CBC Mode: For each block...

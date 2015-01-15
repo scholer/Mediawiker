@@ -3,3 +3,5 @@
 .projectfiles/*
 *.orig
 lib/*/old/*
+*.komodoproject
+

@@ -168,7 +168,7 @@ except ImportError:
     except ImportError:
         from pbkdf2 import PBKDF2 as _PBKDF2
     def PBKDF2(my_pass, salt, length, iterations):
-        return _PBKDF2(my_pass, salt, iterations).hexread(length)
+        return _PBKDF2(my_pass, salt, iterations).read(length)
 
 # Windows decryption.
 if sys.platform == 'win32':
