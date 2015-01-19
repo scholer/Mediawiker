@@ -52,6 +52,7 @@ import sublime
 import sublime_plugin
 from datetime import date
 from functools import partial
+import difflib
 
 
 if int(sublime.version()) > 3000:
@@ -771,6 +772,75 @@ class MediawikerSavePageCommand(sublime_plugin.WindowCommand):
 
 
 
+class MediawikerPageDiffVsServerCommand(sublime_plugin.WindowCommand):
+    """
+    command string: mediawiker_page_diff_vs_server
+    Page diff vs server revision
+    Display the difference between current buffer and the most recent version on the server.
+    Inspired by:
+    * https://github.com/sabhiram/sublime-clipboard-diff
+    * https://github.com/colinta/SublimeFileDiffs
+    * https://github.com/zsong/diffy
+    * https://github.com/colinta/SublimeFileDiffs
+    """
+    def run(self):
+        current_view = self.window.active_view()
+        if not current_view:
+            print("No active view, cannot diff...")
+            return
+        title = mw.get_title()
+        view_text = current_view.substr(sublime.Region(0, current_view.size()))
+        print("view_text len: ", len(view_text))
+        diff_view = self.window.new_file()
+        diff_view.set_scratch(True)     # Scratch buffers will never report as dirty.
+        diff_title = "diff: " + title
+        diff_view.set_name(diff_title)
+        # The rest must be run in with a TextCommand to get an edit token...
+        # OTOH: You can just run mediawiker_insert_text at the end when you have calculated your diff...
+        #diff_view.run_command('mediawiker_page_diff_latest', {'title': diff_title, 'password': None, 'old_text': old_text)
+        # If you want to split out to separate text command, it should be so that you can run it through
+        # the MediawikerPageCommand->MediawikerValidateConnectionParamsCommand command chain...
+        try:
+            sitecon = mw.get_connect(password=None)
+        except (mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
+            msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired.\n-- %s' % exc
+            sublime.status_message(msg)
+            return
+        _, text = mw.get_page_text(sitecon, title)
+        print("server page text len: ", len(text))
+        if not text:
+            # Uh, well, what if it does exist, but it is empty?
+            msg = 'Wiki page %s does not exists.' % (title,)
+            sublime.status_message(msg)
+            diff_text = '<!-- %s -->' % msg
+        else:
+            new_lines = [l+"\n" for l in view_text.split("\n")]
+            old_lines = [l+"\n" for l in text.split("\n")]
+            print("new vs old number of lines: %s vs %s" % (len(new_lines), len(old_lines)))
+            diff_lines = difflib.unified_diff(old_lines, new_lines, fromfile="Server revision", tofile="Buffer view")
+            diff_text = "".join(diff_lines)
+            print("len diff_text: %s" % (len(diff_text), ))
+            if not diff_text:
+                print("Diff text: ", diff_text)
+                diff_text = "<<< No change between files... >>>"
+            else:
+                diff_view.set_syntax_file("Packages/Diff/Diff.tmLanguage")
+        diff_view.run_command('mediawiker_insert_text', {'text': diff_text})
+
+
+
+
+class MediawikerPageDiffLatestCommand(sublime_plugin.TextCommand):
+    """
+    Command string: mediawiker_page_diff_latest
+    """
+    def run(self, edit, title, password):
+        pass
+
+
+
+
+
 ######### TEXT COMMANDS ###############
 
 ######## ######## ##     ## ########     ######  ##     ## ########   ######
@@ -830,7 +900,7 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
 
         if is_writable:
             if not text:
-                sublime.status_message('Wiki page %s is not exists. You can create new..' % (title))
+                sublime.status_message('Wiki page %s does not exists. You can create new..' % (title))
                 text = '<!-- New wiki page: Remove this with text of the new page -->'
             # insert text
             self.view.erase(edit, sublime.Region(0, self.view.size()))

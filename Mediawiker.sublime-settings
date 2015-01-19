@@ -39,6 +39,7 @@
         {"caption": "Add to Favorites", "type": "window_command", "value": "mediawiker_favorites_add"},
         {"caption": "Favorite pages", "type": "window_command", "value": "mediawiker_favorites_open"},
         {"caption": "Reopen page", "type": "window_command", "value": "mediawiker_reopen_page"},
+        {"caption": "Page diff vs server revision", "type": "window_command", "value": "mediawiker_page_diff_vs_server"},
         {"caption": "Open page in browser", "type": "window_command", "value": "mediawiker_open_page_in_browser"},
         {"caption": "Set Category", "type": "window_command", "value": "mediawiker_set_category"},
         {"caption": "Insert template", "type": "window_command", "value": "mediawiker_insert_template"},
