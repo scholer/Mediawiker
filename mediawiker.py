@@ -1152,7 +1152,7 @@ class MediawikerSetActiveSiteCommand(sublime_plugin.WindowCommand):
 
 class MediawikerOpenPageInBrowserCommand(sublime_plugin.WindowCommand):
     def run(self):
-        url = mw_get_page_url()
+        url = mw.get_page_url()
         if url:
             webbrowser.open(url)
         else:
@@ -2020,7 +2020,7 @@ class MediawikerCompletionsEvent(sublime_plugin.EventListener):
                 word_cursor_min_len = mw.get_setting('mediawiker_page_prefix_min_length', 3)
                 if len(internal_link) >= word_cursor_min_len:
                     namespaces = [ns.strip() for ns in mw.get_setting('mediawiker_search_namespaces').split(',')]
-                    sitecon = mw_get_connect()
+                    sitecon = mw.get_connect()
                     pages = []
                     for ns in namespaces:
                         pages = sitecon.allpages(prefix=internal_link, namespace=ns)
