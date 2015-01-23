@@ -10,7 +10,7 @@
 # pylint: disable=W0511,C0111
 # pylintx: disable=W0611   ## Unused imports,
 ## Unable to import, no __init__, no member, too few lines, method-could-be-function, unused argument, attribute defined outside __init__
-# pylint: disable=F0401,E1101,W0232,R0903,R0201,W0613,W0201
+# pylint: disable=F0401,E1101,W0232,R0903,R0201,W0613,W0201,R0913
 
 """
 
@@ -47,7 +47,6 @@ import os
 import sys
 import webbrowser
 import re
-import base64
 import sublime
 import sublime_plugin
 from datetime import date
@@ -695,7 +694,7 @@ class MediawikerSetLoginCookie(sublime_plugin.WindowCommand):
     """
     def run(self, new_cookie=None):
         if new_cookie is None:
-            new_cookie = current_cookie = mw.get_login_cookie(default='')
+            new_cookie = mw.get_login_cookie(default='')
         # show_input_panel(caption, initial_text, on_done, on_change, on_cancel)
         self.window.show_input_panel('Set login cookie:', new_cookie, self.on_done, None, None)
     def on_done(self, new_cookie):
@@ -891,6 +890,7 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
         except (mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
             msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired.'
             sublime.status_message(msg)
+            print(msg + "; Error:", exc)
             return
         is_writable, text = mw.get_page_text(sitecon, title)
         self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
@@ -1413,7 +1413,7 @@ class MediawikerTableSimpleToWikiCommand(sublime_plugin.TextCommand):
         cell_properties = '%s | ' % cell_properties if cell_properties else ''
         try:
             return delimiter.join(' %s%s ' % (cell_properties, cell['cell_data'].strip()) for cell in rowlist)
-        except Exception as e:
+        except (ValueError, KeyError) as e:
             print('Error in data: %s' % e)
 
 
@@ -1535,7 +1535,7 @@ class MediawikerSearchStringListCommand(sublime_plugin.TextCommand):
                 try:
                     page_data = self.search_result.next()
                     self.pages_names.append([page_data['title'], page_data['snippet']])
-                except Exception as e:
+                except (ValueError, KeyError) as e:
                     print("Exception during search_result generation:", repr(e))
             te = ''
             search_number = 1
@@ -1646,6 +1646,7 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
         sublime.active_window().show_input_panel('File path:', '', self.get_destfilename, None, None)
 
     def get_destfilename(self, file_path):
+        file_path = file_path.strip('"')    # Strip leading and trailing quotation marks
         if file_path:
             self.file_path = file_path
             file_destname = os.path.basename(file_path)
@@ -1669,12 +1670,13 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
             sublime.status_message('File %s successfully uploaded to wiki as %s' % (self.file_path, self.file_destname))
         except IOError as e:
             sublime.message_dialog('Upload io error: %s' % e)
+            return
         except ValueError as e:
             # This might happen in predata['token'] = image.get_token('edit'), if e.g. title is invalid.
             sublime.message_dialog('Upload error, invalid destination file name/title:\n %s' % e)
-        except Exception as e:
-            print("UPLOAD ERROR:", repr(e))
-            sublime.message_dialog('Upload error: %s' % e)
+            return
+        link_text = '[[File:%(destname)s]]' % {'destname': self.file_destname}
+        self.view.run_command('mediawiker_insert_text', {'position': None, 'text': link_text})
 
 
 
@@ -1780,7 +1782,9 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
         #sitecon = mw.get_connect(self.password)
         # dict used to change how images are inserted.
         image_link_options = {'caption': '', 'options': '', 'filedescription_as_caption': False,
-                              'link_fmt': '\n[[File:%(destname)s|%(options)s|%(caption)s]]\n'}
+                              'image_extensions': '.jpg,.jpeg,.bpm,.png,.gif,.svg,.tif,.tiff',
+                              'link_fmt': '\n[[File:%(destname)s|%(options)s|%(caption)s]]\n',
+                              'file_link_fmt': '[[File:%(destname)s]]'}
         image_link_options.update(mw.get_setting('mediawiker_insert_image_options', {}))
         # Update with options from first line of view:
         if view_image_link_options:
@@ -1847,7 +1851,12 @@ class MediawikerUploadSingleFileCommand(sublime_plugin.TextCommand):
     """
 
     def appendText(self, text, edit=None):
-        """ Convenience appendText method """
+        """
+        Convenience appendText method.
+        We can use this instead of invoking mediawiker_insert_text command only because,
+        we do not have any user input and thus do not rely on any callbacks.
+        (I.e. the command's run() has not returned).
+        """
         if edit is None:
             edit = self.edit
         self.view.insert(edit, self.view.size(), text)
