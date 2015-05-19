@@ -288,8 +288,9 @@ class MediawikerValidateConnectionParamsCommand(sublime_plugin.WindowCommand):
 
     def call_page(self):
         """ Invoke the action command string in the active view, providing title and password as keyword arguments. """
-        action_args = self.action_args
-        action_args.update({"title": self.title, "password": self.password})
+        action_args = {"title": self.title, "password": self.password}
+        if self.action_args:
+            action_args.update(self.action_args)
         self.window.active_view().run_command(self.action, action_args)
 
 
