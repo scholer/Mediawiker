@@ -84,7 +84,7 @@ else:
 
 
 # Initialize logging system (only kicks in if not initialized already...)
-mw.init_logging()
+# mw.init_logging() # Edit: This is re-delegated to sublime_logging plugin...
 
 
 # Define constants:
@@ -153,9 +153,10 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
     is_inputfixed = False
     run_in_new_window = False
 
-    def run(self, action, title=''):
+    def run(self, action, title='', args=None):
         """ Entry point, invoked with action keyword and optionally a pre-defined title. """
         self.action = action
+        self.action_args = args
         actions_validate = ['mediawiker_publish_page', 'mediawiker_add_category',
                             'mediawiker_category_list', 'mediawiker_search_string_list',
                             'mediawiker_add_image', 'mediawiker_add_template',
@@ -204,7 +205,8 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
         try:
             if title:
                 title = mw.pagename_clear(title)
-            self.window.run_command("mediawiker_validate_connection_params", {"title": title, "action": self.action})
+            self.window.run_command("mediawiker_validate_connection_params",
+                                    {"title": title, "action": self.action, "args": self.action_args})
         except ValueError as e:
             sublime.message_dialog(e)
 
@@ -228,7 +230,7 @@ class MediawikerValidateConnectionParamsCommand(sublime_plugin.WindowCommand):
     is_hide_password = False
     PASSWORD_CHAR = u'\u25CF'
 
-    def run(self, title, action):
+    def run(self, title, action, args=None):
         """
         Command entry point. Usually invoked from/via MediawikerPage command, which
         makes sure to set title and action (text command).
@@ -237,6 +239,7 @@ class MediawikerValidateConnectionParamsCommand(sublime_plugin.WindowCommand):
         self.is_hide_password = mw.get_setting('mediawiker_password_input_hide')
         self.PASSWORD_CHAR = mw.get_setting('mediawiker_password_char')
         self.action = action  # TODO: check for better variant
+        self.action_args = args
         self.title = title
         site = mw.get_setting('mediawiki_site_active')
         site_list = mw.get_setting('mediawiki_site')
@@ -285,7 +288,9 @@ class MediawikerValidateConnectionParamsCommand(sublime_plugin.WindowCommand):
 
     def call_page(self):
         """ Invoke the action command string in the active view, providing title and password as keyword arguments. """
-        self.window.active_view().run_command(self.action, {"title": self.title, "password": self.password})
+        action_args = self.action_args
+        action_args.update({"title": self.title, "password": self.password})
+        self.window.active_view().run_command(self.action, action_args)
 
 
 
@@ -377,6 +382,18 @@ class MediawikerFileUploadCommand(sublime_plugin.WindowCommand):
     def run(self):
         """ Command entry point. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_upload"})
+
+
+class MediawikerUpdateFileCommand(sublime_plugin.WindowCommand):
+    """
+    Command string: mediawiker_file_upload
+    Invokes Upload TextCommand with ignorewarnings=True parameter, via the usual
+    MediawikerPageCommand+MediawikerValidateConnectionParamsCommand chain.
+    """
+    def run(self):
+        """ Command entry point. """
+        self.window.run_command("mediawiker_page",
+                                {"action": "mediawiker_upload", "args": {"ignorewarnings": True}})
 
 
 class MediawikerCategoryTreeCommand(sublime_plugin.WindowCommand):
@@ -1632,8 +1649,14 @@ class MediawikerAddTemplateCommand(sublime_plugin.TextCommand):
 
 class MediawikerUploadCommand(sublime_plugin.TextCommand):
     """
+    Command string: mediawiker_upload
     Uploads a single file, prompts the user for (1) filepath, (2) destination filename and (3) description.
-    Command string: mediawiker_upload .
+    Arguments:
+        password:       User password (if required).
+        title:          Not used (placeholder required for the whole MediawikerPageCommand+MediawikerValidateConnectionParamsCommand)
+        ignorewarnings: Add "ignorewarnings"=true parameter to the query (required to upload a
+                        new/updated version of an existing image.)
+                        (NOT IMPLEMENTED YET).
     """
 
     password = None
@@ -1641,8 +1664,11 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
     file_destname = None
     file_descr = None
 
-    def run(self, edit, password, title=''):
+    def run(self, edit, password, title='', ignorewarnings=False):
         self.password = password
+        self.ignorewarnings = ignorewarnings
+        if ignorewarnings or True:
+            print("MediawikerUploadCommand: Using ignorewarnings =", ignorewarnings)
         sublime.active_window().show_input_panel('File path:', '', self.get_destfilename, None, None)
 
     def get_destfilename(self, file_path):
@@ -1666,7 +1692,7 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
             self.file_descr = '%s as %s' % (os.path.basename(self.file_path), self.file_destname)
         try:
             with open(self.file_path, 'rb') as f:
-                sitecon.upload(f, self.file_destname, self.file_descr)
+                sitecon.upload(f, self.file_destname, self.file_descr, ignore=self.ignorewarnings)
             sublime.status_message('File %s successfully uploaded to wiki as %s' % (self.file_path, self.file_destname))
         except IOError as e:
             sublime.message_dialog('Upload io error: %s' % e)
@@ -1848,6 +1874,11 @@ class MediawikerUploadSingleFileCommand(sublime_plugin.TextCommand):
     OH, also -- it seems you can only pass "simple" values to commands - lists/dicts with text,
     numbers and so on. Trying to pass e.g. a "sitecon" mwclient Site connection object
     will raise the error above. Sigh.
+
+    Parameters:
+        ignorewarnings: Add "ignorewarnings"=true parameter to the query (required to upload a
+                        new/updated version of an existing image.)
+                        (NOT IMPLEMENTED YET).
     """
 
     def appendText(self, text, edit=None):
@@ -1862,7 +1893,7 @@ class MediawikerUploadSingleFileCommand(sublime_plugin.TextCommand):
         self.view.insert(edit, self.view.size(), text)
 
 
-    def run(self, edit, filepath, destname, filedesc, link_fmt, file_image_link_options):
+    def run(self, edit, filepath, destname, filedesc, link_fmt, file_image_link_options, ignorewarnings=False):
         """ Main run """
         self.edit = edit
         sitecon = sitemgr.Siteconn
@@ -1871,7 +1902,7 @@ class MediawikerUploadSingleFileCommand(sublime_plugin.TextCommand):
         try:
             with open(filepath, 'rb') as f:
                 print("\nAttempting to upload file %s to destination '%s' (description: '%s')...\n" % (filepath, destname, filedesc))
-                upload_info = sitecon.upload(f, destname, filedesc)
+                upload_info = sitecon.upload(f, destname, filedesc, ignore=ignorewarnings)
                 print("MediawikerUploadSingleFileCommand(): upload_info:", upload_info)
             if 'warnings' in upload_info:
                 msg = "Warnings while uploading file '%s': %s \nIt is likely that this file has not been properly uploaded." % (destname, upload_info.get('warnings'))
