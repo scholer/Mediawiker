@@ -3,8 +3,6 @@
 
 import sys
 from os.path import basename
-pythonver = sys.version_info[0]
-
 import webbrowser
 import re
 import sublime
@@ -15,7 +13,7 @@ import sublime_plugin
 # http://www.sublimetext.com/docs/3/api_reference.html
 # sublime.message_dialog
 
-if pythonver >= 3:
+if sys.version_info[0] >= 3:
     from . import mwutils as mw
 else:
     import mwutils as mw
@@ -24,17 +22,6 @@ CATEGORY_NAMESPACE = 14  # category namespace number
 IMAGE_NAMESPACE = 6  # image namespace number
 TEMPLATE_NAMESPACE = 10  # template namespace number
 
-
-class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
-
-    def run(self, edit, position, text):
-        self.view.insert(edit, position, text)
-
-
-class MediawikerReplaceTextCommand(sublime_plugin.TextCommand):
-
-    def run(self, edit, text):
-        self.view.replace(edit, self.view.sel()[0], text)
 
 
 class MediawikerPageCommand(sublime_plugin.WindowCommand):
@@ -172,6 +159,105 @@ class MediawikerPageListCommand(sublime_plugin.WindowCommand):
                 sublime.message_dialog(e)
 
 
+class MediawikerEditPanelCommand(sublime_plugin.WindowCommand):
+    options = []
+    SNIPPET_CHAR = u'\u24C8'
+
+    def run(self):
+        self.SNIPPET_CHAR = mw.get_setting('mediawiker_snippet_char')
+        self.options = mw.get_setting('mediawiker_panel', {})
+        if self.options:
+            office_panel_list = ['\t%s' % val['caption'] if val['type'] != 'snippet' else '\t%s %s' % (self.SNIPPET_CHAR, val['caption']) for val in self.options]
+            self.window.show_quick_panel(office_panel_list, self.on_done)
+
+    def on_done(self, index):
+        if index >= 0:
+            # escape from quick panel return -1
+            try:
+                action_type = self.options[index]['type']
+                action_value = self.options[index]['value']
+                if action_type == 'snippet':
+                    # run snippet
+                    self.window.active_view().run_command("insert_snippet", {"name": action_value})
+                elif action_type == 'window_command':
+                    # run command
+                    self.window.run_command(action_value)
+                elif action_type == 'text_command':
+                    # run command
+                    self.window.active_view().run_command(action_value)
+            except ValueError as e:
+                sublime.status_message(e)
+
+
+class MediawikerCliCommand(sublime_plugin.WindowCommand):
+
+    def run(self, url):
+        if url:
+            # print('Opening page: %s' % url)
+            sublime.set_timeout(lambda: self.window.run_command("mediawiker_page", {"action": "mediawiker_show_page", "title": self.proto_replacer(url)}), 1)
+
+    def proto_replacer(self, url):
+        if sublime.platform() == 'windows' and url.endswith('/'):
+            url = url[:-1]
+        elif sublime.platform() == 'linux' and url.startswith("'") and url.endswith("'"):
+            url = url[1:-1]
+        return url.split("://")[1]
+
+
+class MediawikerFavoritesAddCommand(sublime_plugin.WindowCommand):
+    """ Add current page to the favorites list. Command string: mediawiker_favorites_add  (WindowCommand) """
+    def run(self):
+        title = mw.get_title()
+        mw.save_mypages(title=title, storage_name='mediawiker_favorites')
+
+
+class MediawikerFavoritesOpenCommand(sublime_plugin.WindowCommand):
+    """ Open page from the favorites list. Command string: mediawiker_favorites_open (WindowCommand) """
+    def run(self):
+        self.window.run_command("mediawiker_page_list", {"storage_name": 'mediawiker_favorites'})
+
+
+
+
+######### TEXT COMMANDS ###############
+
+######## ######## ##     ## ########     ######  ##     ## ########   ######
+   ##    ##        ##   ##     ##       ##    ## ###   ### ##     ## ##    ##
+   ##    ##         ## ##      ##       ##       #### #### ##     ## ##
+   ##    ######      ###       ##       ##       ## ### ## ##     ##  ######
+   ##    ##         ## ##      ##       ##       ##     ## ##     ##       ##
+   ##    ##        ##   ##     ##       ##    ## ##     ## ##     ## ##    ##
+   ##    ######## ##     ##    ##        ######  ##     ## ########   ######
+
+
+
+class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
+    """
+    Command string: mediawiker_insert_text
+    When run, insert text at position in the view.
+    If position is None, insert at current position.
+    Other commonly-used shortcuts are:
+        cursor_position = self.view.sel()[0].begin()
+        end_of_file = self.view.size()
+        start_of_file = 0
+    """
+    def run(self, edit, position=None, text=''):
+        """ TextCommand entry point, edit token is provided by Sublime. """
+        if position is None:
+            # Note: Probably better to use built-in command, "insert":
+            # { "keys": ["enter"], "command": "insert", "args": {"characters": "\n"} }
+            position = self.view.sel()[0].begin()
+        elif position == -1:
+            position = self.view.size()
+        self.view.insert(edit, position, text)
+        print("Inserted %s chars at pos %s" % (len(text), position))
+
+class MediawikerReplaceTextCommand(sublime_plugin.TextCommand):
+
+    def run(self, edit, text):
+        self.view.replace(edit, self.view.sel()[0], text)
+
+
 class MediawikerShowPageCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, title, password):
@@ -185,7 +271,7 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
 
         if is_writable:
             if not text:
-                sublime.status_message('Wiki page %s is not exists. You can create new..' % (title))
+                sublime.status_message('Wiki page %s does not exists. You can create new..' % (title))
                 text = '<!-- New wiki page: Remove this with text of the new page -->'
             # insert text
             self.view.erase(edit, sublime.Region(0, self.view.size()))
@@ -533,36 +619,6 @@ class MediawikerCsvTableCommand(sublime_plugin.TextCommand):
         if self.delimiter in line:
             return line.split(self.delimiter)
         return []
-
-
-class MediawikerEditPanelCommand(sublime_plugin.WindowCommand):
-    options = []
-    SNIPPET_CHAR = u'\u24C8'
-
-    def run(self):
-        self.SNIPPET_CHAR = mw.get_setting('mediawiker_snippet_char')
-        self.options = mw.get_setting('mediawiker_panel', {})
-        if self.options:
-            office_panel_list = ['\t%s' % val['caption'] if val['type'] != 'snippet' else '\t%s %s' % (self.SNIPPET_CHAR, val['caption']) for val in self.options]
-            self.window.show_quick_panel(office_panel_list, self.on_done)
-
-    def on_done(self, index):
-        if index >= 0:
-            # escape from quick panel return -1
-            try:
-                action_type = self.options[index]['type']
-                action_value = self.options[index]['value']
-                if action_type == 'snippet':
-                    # run snippet
-                    self.window.active_view().run_command("insert_snippet", {"name": action_value})
-                elif action_type == 'window_command':
-                    # run command
-                    self.window.run_command(action_value)
-                elif action_type == 'text_command':
-                    # run command
-                    self.window.active_view().run_command(action_value)
-            except ValueError as e:
-                sublime.status_message(e)
 
 
 class MediawikerTableWikiToSimpleCommand(sublime_plugin.TextCommand):
@@ -950,21 +1006,6 @@ class MediawikerAddTemplateCommand(sublime_plugin.TextCommand):
             self.view.run_command('mediawiker_insert_text', {'position': index_of_cursor, 'text': template_text})
 
 
-class MediawikerCliCommand(sublime_plugin.WindowCommand):
-
-    def run(self, url):
-        if url:
-            # print('Opening page: %s' % url)
-            sublime.set_timeout(lambda: self.window.run_command("mediawiker_page", {"action": "mediawiker_show_page", "title": self.proto_replacer(url)}), 1)
-
-    def proto_replacer(self, url):
-        if sublime.platform() == 'windows' and url.endswith('/'):
-            url = url[:-1]
-        elif sublime.platform() == 'linux' and url.startswith("'") and url.endswith("'"):
-            url = url[1:-1]
-        return url.split("://")[1]
-
-
 class MediawikerUploadCommand(sublime_plugin.TextCommand):
 
     password = None
@@ -1002,19 +1043,6 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
             sublime.message_dialog('Upload io error: %s' % e)
         except Exception as e:
             sublime.message_dialog('Upload error: %s' % e)
-
-
-class MediawikerFavoritesAddCommand(sublime_plugin.WindowCommand):
-
-    def run(self):
-        title = mw.get_title()
-        mw.save_mypages(title=title, storage_name='mediawiker_favorites')
-
-
-class MediawikerFavoritesOpenCommand(sublime_plugin.WindowCommand):
-
-    def run(self):
-        self.window.run_command("mediawiker_page_list", {"storage_name": 'mediawiker_favorites'})
 
 
 class MediawikerLoad(sublime_plugin.EventListener):
