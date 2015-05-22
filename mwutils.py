@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# pylint: disable=invalid-name,line-too-long
+
 """
 
 Utility module for Mediawikier package.
@@ -15,6 +17,7 @@ import urllib
 import base64
 from hashlib import md5
 import uuid
+import re
 
 import sublime
 
@@ -130,6 +133,29 @@ def get_site_params(name=None):
     sites = get_setting('mediawiki_site')
     return sites[name]
 
+
+def get_login_cookie_key_and_value(site_name=None, cookie_key=None):
+    """ Used to get the name of the cookie used as login cookie. """
+    ## TODO: Implement get_login_cookie_key better.
+    site_params = get_site_params(site_name)
+    try:
+        cookies = site_params['cookies']
+    except KeyError:
+        return None, None
+    if not cookies:
+        return None, None
+    if len(cookies) == 1:
+        return next((k, v) for k, v in cookies.items())
+    if cookie_key is None:
+        if 'login_cookie_name' in site_params:
+            cookie_key = site_params['login_cookie_name']
+        elif 'open_id_session_id' in cookies:
+            cookie_key = 'open_id_session_id'
+        else:
+            return None, None
+    return cookie_key, cookies[cookie_key]
+
+
 def get_login_cookie(cookie_key='open_id_session_id', site_name=None, default=None):
     """ Get login cookie for active site, or site <site_name> if specified. """
     site_params = get_site_params(site_name)
@@ -154,10 +180,10 @@ def set_login_cookie(value, cookie_key='open_id_session_id', site_name=None):
     if site_name is None:
         site_name = settings.get('mediawiki_site_active')
     sites = settings.get('mediawiki_site')
-    print("Re-loaded site_params:")
-    print(sites[site_name])
+    #print("Re-loaded site_params:")
+    #print(sites[site_name])    # This was just to prove that the above doesn't work...
     sites[site_name]['cookies'][cookie_key] = value
-    settings.set('mediawiki_site', sites)
+    settings.set('mediawiki_site', sites)   # Saving the complete 'mediawiki_site' entry, otoh, will persist the change.
     sublime.save_settings('Mediawiker.sublime-settings')
 
 
@@ -188,6 +214,14 @@ def save_mypages(title, storage_name='mediawiker_pagelist'):
 
 
 ### CONNECTION HANDLING ###
+
+def get_view_site():
+    try:
+        return sublime.active_window().active_view().settings().get('mediawiker_site', get_setting('mediawiki_site_active'))
+    except:
+        # st2 exception on start.. sublime not available on activated..
+        return get_setting('mediawiki_site_active')
+
 
 def enco(value):
     ''' for md5 hashing string must be encoded '''
@@ -248,7 +282,7 @@ def get_digest_header(header, username, password, path):
 
 def get_connect(password=''):
     """ Returns a mwclient connection to the active MediaWiki site. """
-    site_active = get_view_site()
+    site_name_active = get_view_site()
     site_list = get_setting('mediawiki_site')
     site_params = site_list[site_name_active]
     site = site_params['host']
@@ -280,7 +314,7 @@ def get_connect(password=''):
         # CookieJar is a subclass of dict. I've changed it's __init__ so you can initialize it as a dict.
         # connection.post(<host>, ...) finds the host in the connection pool,
         sitecon = mwclient.Site(host=host, path=path, inject_cookies=inject_cookies)
-    except errors.HTTPStatusError as exc:
+    except (mwclient.HTTPStatusError, errors.HTTPStatusError) as exc:
         e = exc.args if PYTHONVER >= 3 else exc     # pylint: disable=W0621
         is_use_http_auth = site_params.get('use_http_auth', False)
         http_auth_login = site_params.get('http_auth_login', '')
@@ -291,10 +325,11 @@ def get_connect(password=''):
         else:
             sublime.status_message('HTTP connection failed: %s' % e[1])
             raise Exception('HTTP connection failed.')
-
-    except errors.HTTPRedirectError as exc:
+    except (mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
         # if redirect to '/login.php' page:
-        sublime.status_message('Connection to server failed. If you are logging in with an open_id session cookie, it may have expired. (HTTPRedirectError)')
+        msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired. (HTTPRedirectError: %s)' % exc
+        print(msg)
+        sublime.status_message(msg)
         raise exc
 
 
@@ -306,7 +341,7 @@ def get_connect(password=''):
                 sublime.status_message('Logon successfully.')
             else:
                 sublime.status_message('Login failed: connection unavailable.')
-        except mwclient.LoginError as e:
+        except (errors.LoginError, mwclient.LoginError) as e:
             sublime.status_message('Login failed: %s' % e[1]['result'])
             return
     elif inject_cookies:

@@ -1,0 +1,6 @@
+Mediawiker 2.4.5 RS revision 01:
+* NEW FEATURE: You can now set login cookie by input prompt directly from Sublime.
+* Added cookieshop module which makes it possible to extract cookies from Google Chrome.
+* NEW FEATURE: Command to extract and update the login cookie from Google Chrome.
+* Improvement: Batch upload is now uploaded asynchronously in order to reduce "handing" where the editor appears unresponsive.
+* Improvement: Better error catching to inform you if e.g. the login cookie might have expired.

@@ -405,6 +405,8 @@ class Site(object):
             fileobj: File-like object with the data to upload.
             filename: Destination filename (on the wiki).
             description: Add this description to the file (on the wiki).
+            ignore: Add "ignorewarnings"=true parameter to the query
+                    (required to upload a new/updated version of an existing image.)
         """
         if self.version[:2] < (1, 16):
             print("DEBUG: upload() - Using old upload method...")
