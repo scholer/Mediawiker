@@ -2,8 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import sys
-pythonver = sys.version_info[0]
-
 from os.path import splitext, basename
 import re
 import urllib
@@ -13,15 +11,9 @@ import uuid
 
 import sublime
 
-if pythonver >= 3:
-    # NOTE: load from package, not used now because custom ssl
-    # current_dir = dirname(__file__)
-    # if '.sublime-package' in current_dir:
-    #     sys.path.append(current_dir)
-    #     import mwclient
-    # else:
-    #     from . import mwclient
+pythonver = sys.version_info[0]
 
+if pythonver >= 3:
     from . import mwclient
 else:
     import mwclient
@@ -58,61 +50,6 @@ def deco(value):
     if pythonver >= 3:
         return value.decode('utf-8')
     return value
-
-
-def strunquote(string_value):
-    if pythonver >= 3:
-        return urllib.parse.unquote(string_value)
-    else:
-        return urllib.unquote(string_value.encode('ascii')).decode('utf-8')
-
-
-def strquote(string_value):
-    if pythonver >= 3:
-        return urllib.parse.quote(string_value)
-    else:
-        return urllib.quote(string_value.encode('utf-8'))
-
-
-def get_title():
-    ''' returns page title of active tab from view_name or from file_name'''
-
-    view_name = sublime.active_window().active_view().name()
-    if view_name:
-        return view_name
-    else:
-        # haven't view.name, try to get from view.file_name (without extension)
-        file_name = sublime.active_window().active_view().file_name()
-        if file_name:
-            wiki_extensions = get_setting('mediawiker_files_extension')
-            title, ext = splitext(basename(file_name))
-            if ext[1:] in wiki_extensions and title:
-                return title
-            else:
-                sublime.status_message('Unauthorized file extension for mediawiki publishing. Check your configuration for correct extensions.')
-                return ''
-    return ''
-
-
-def pagename_clear(pagename):
-    """ Return clear pagename if page-url was set instead of.."""
-    # site_active = get_setting('mediawiki_site_active')
-    site_active = get_view_site()
-    site_list = get_setting('mediawiki_site')
-    site = site_list[site_active]['host']
-    pagepath = site_list[site_active]['pagepath']
-    try:
-        pagename = strunquote(pagename)
-    except UnicodeEncodeError:
-        pass
-    except Exception:
-        pass
-
-    if site in pagename:
-        pagename = re.sub(r'(https?://)?%s%s' % (site, pagepath), '', pagename)
-
-    sublime.status_message('Page name was cleared.')
-    return pagename
 
 
 def get_digest_header(header, username, password, path):
@@ -189,7 +126,7 @@ def http_auth(http_auth_header, host, path, login, password):
 
 
 def get_connect(password=None):
-    # site_name_active = mw.get_setting('mediawiki_site_active')
+    """ Returns a mwclient connection to the active MediaWiki site. """
     site_active = get_view_site()
     site_list = get_setting('mediawiki_site')
     site_params = site_list[site_active]
@@ -259,7 +196,6 @@ def save_mypages(title, storage_name='mediawiker_pagelist'):
 
     title = title.replace('_', ' ')  # for wiki '_' and ' ' are equal in page name
     pagelist_maxsize = get_setting('mediawiker_pagelist_maxsize')
-    # site_active = mw.get_setting('mediawiki_site_active')
     site_active = get_view_site()
     mediawiker_pagelist = get_setting(storage_name, {})
 
@@ -277,6 +213,75 @@ def save_mypages(title, storage_name='mediawiker_pagelist'):
             my_pages.remove(title)
     my_pages.append(title)
     set_setting(storage_name, mediawiker_pagelist)
+
+
+def strquote(string_value):
+    """
+    str quote and unquote:
+        quoting will replace reserved characters (: ; ? @ & = + $ , /) with encoded versions,
+        unquoting will reverse the process.
+        The parameter safe='/' specified which characters not to touch.
+    quote_plus will further replace spaces with '+' and defaults to safe='' (i.e. all reserved are replaced.)
+    Note that the 'safe' argument only applies when quoting; unquoting will always convert all.
+    """
+    if quote_plus is None:
+        quote_plus = get_setting("mediawiki_quote_plus", False)
+    if safe is None:
+        safe = get_setting("mediawiker_quote_safe", '' if quote_plus else '/')
+    if pythonver >= 3:
+        quote = urllib.parse.quote_plus if quote_plus else urllib.parse.quote
+        return quote(string_value, safe=safe)
+    else:
+        quote = urllib.quote_plus if quote_plus else urllib.quote
+        return quote(string_value.encode('utf-8'), safe=safe)
+
+
+def strunquote(string_value):
+    """ Reverses the effect of strquote() """
+    if pythonver >= 3:
+        return urllib.parse.unquote(string_value)
+    else:
+        return urllib.unquote(string_value.encode('ascii')).decode('utf-8')
+
+
+def pagename_clear(pagename):
+    """ Return clear pagename if page-url was set instead of.."""
+    site_active = get_view_site()
+    site_list = get_setting('mediawiki_site')
+    site = site_list[site_active]['host']
+    pagepath = site_list[site_active]['pagepath']
+    try:
+        pagename = strunquote(pagename)
+    except UnicodeEncodeError:
+        pass
+    except Exception:
+        pass
+
+    if site in pagename:
+        pagename = re.sub(r'(https?://)?%s%s' % (site, pagepath), '', pagename)
+
+    sublime.status_message('Page name was cleared.')
+    return pagename
+
+
+def get_title():
+    ''' returns page title of active tab from view_name or from file_name'''
+
+    view_name = sublime.active_window().active_view().name()
+    if view_name:
+        return view_name
+    else:
+        # haven't view.name, try to get from view.file_name (without extension)
+        file_name = sublime.active_window().active_view().file_name()
+        if file_name:
+            wiki_extensions = get_setting('mediawiker_files_extension')
+            title, ext = splitext(basename(file_name))
+            if ext[1:] in wiki_extensions and title:
+                return title
+            else:
+                sublime.status_message('Unauthorized file extension for mediawiki publishing. Check your configuration for correct extensions.')
+                return ''
+    return ''
 
 
 def get_hlevel(header_string, substring):
