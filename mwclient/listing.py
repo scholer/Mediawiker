@@ -71,7 +71,7 @@ class List(object):
 
     def load_chunk(self):
         if pythonver >= 3:
-            data = self.site.api('query', (self.generator, self.list_name), *[(str(k), v) for k, v in list(self.args.items())])
+            data = self.site.api('query', (self.generator, self.list_name), *[(str(k), v) for k, v in self.args.items()])
         else:
             data = self.site.api('query', (self.generator, self.list_name), *[(str(k), v) for k, v in self.args.iteritems()])
         if not data:
@@ -102,7 +102,7 @@ class List(object):
     def generate_kwargs(_prefix, *args, **kwargs):
         kwargs.update(args)
         if pythonver >= 3:
-            for key, value in list(kwargs.items()):
+            for key, value in kwargs.items():
                 if value is not None:
                     yield _prefix + key, value
         else:

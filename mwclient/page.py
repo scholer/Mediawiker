@@ -1,3 +1,5 @@
+
+from __future__ import print_function
 import sys
 pythonver = sys.version_info[0]
 
@@ -94,17 +96,19 @@ class Page(object):
         self.site.require(1, 11)
 
         if type not in self.site.tokens:
+            print("DEBUG: %s.get_token(%s) - type is not in self.site.tokens = %s" % (self, type, self.site.tokens))
             self.site.tokens[type] = '0'
         if self.site.tokens.get(type, '0') == '0' or force:
             info = self.site.api('query', titles=self.name, prop='info', intoken=type)
-            if pythonver >= 3:
-                for i in info['query']['pages'].values():
-                    if i['title'] == self.name:
-                        self.site.tokens[type] = i['%stoken' % type]
-            else:
-                for i in info['query']['pages'].itervalues():
-                    if i['title'] == self.name:
-                        self.site.tokens[type] = i['%stoken' % type]
+            # Iterator variable. Avoid redundant code later. And 'i' is generally reserved for indices/enumartion.
+            pageinfo = info['query']['pages'].values() if pythonver >= 3 else info['query']['pages'].itervalues()
+            for page in pageinfo:
+                if page['title'] == self.name:
+                    # If title is invalid, then raise an appropriate exception.
+                    if 'invalid' in page and page.get('title'):
+                        raise ValueError(page['title'])
+                    # Otherwise the user will receive a KeyError in the statement below, which is not very precise.
+                    self.site.tokens[type] = page['%stoken' % type]
 
         return self.site.tokens[type]
 

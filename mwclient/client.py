@@ -62,9 +62,9 @@ class Site(object):
     api_limit = 500
 
     def __init__(self, host, path='/w/', ext='.php', pool=None, retry_timeout=30, max_retries=25, wait_callback=lambda *x: None,
-                 max_lag=3, compress=True, force_login=True, do_init=True, custom_headers=None):
+                 max_lag=3, compress=True, force_login=True, do_init=True, custom_headers=None, inject_cookies=None):
         # Setup member variables
-        self.host = host
+        self.host = host    # host is here a two-tuple of strings: (<scheme>, <hostname>), but can also be just <hostname> if https is not specified!
         self.path = path
         self.ext = ext
         self.credentials = None
@@ -96,6 +96,16 @@ class Site(object):
             self.connection = httpmw.HTTPPool()
         else:
             self.connection = pool
+
+        if inject_cookies:
+            # Not sure if this should be host as a (scheme, hostname) tuple or just host as a string:
+            # Here, only the hostname is used, not the scheme:
+            # I guess it can be both...
+            if isinstance(host, tuple):
+                scheme, hostname = host
+            else:
+                hostname = host
+            self.connection.cookies[hostname] = httpmw.CookieJar(inject_cookies)
 
         # Page generators
         self.pages = listing.PageList(self)
@@ -228,7 +238,7 @@ class Site(object):
     def _query_string(*args, **kwargs):
         kwargs.update(args)
         if pythonver >= 3:
-            qs = urllib.parse.urlencode([(k, Site._to_str(v)) for k, v in list(kwargs.items()) if k != 'wpEditToken'])
+            qs = urllib.parse.urlencode([(k, Site._to_str(v)) for k, v in kwargs.items() if k != 'wpEditToken'])
             if 'wpEditToken' in kwargs:
                 qs += '&wpEditToken=' + urllib.parse.quote(Site._to_str(kwargs['wpEditToken']))
         else:
@@ -390,7 +400,14 @@ class Site(object):
             self.site_init()
 
     def upload(self, fileobj=None, filename=None, description='', ignore=False, file_size=None, url=None, session_key=None):
+        """
+        Parameters:
+            fileobj: File-like object with the data to upload.
+            filename: Destination filename (on the wiki).
+            description: Add this description to the file (on the wiki).
+        """
         if self.version[:2] < (1, 16):
+            print("DEBUG: upload() - Using old upload method...")
             return compatibility.old_upload(self, fileobj=fileobj, filename=filename, description=description, ignore=ignore, file_size=file_size)
 
         image = self.Images[filename]
@@ -402,7 +419,11 @@ class Site(object):
         predata['comment'] = description
         if ignore:
             predata['ignorewarnings'] = 'true'
-        predata['token'] = image.get_token('edit')
+        # This will likely invoke an api call.
+        # If image.name (title) is invalid, then this could cause an exception.
+        # (Would be KeyError for old mwclient code, is now ValueError)
+        # If an exception is raised, should we do anything about it? - No, we can't do much from here.
+        predata['token'] = image.get_token('edit') # May raise KeyError/ValueError
         predata['action'] = 'upload'
         predata['format'] = 'json'
         predata['filename'] = filename
@@ -418,7 +439,7 @@ class Site(object):
                 file_size = len(fileobj)
                 fileobj = StringIO(fileobj)
             if file_size is None:
-                fileobj.seek(0, 2)
+                fileobj.seek(0, 2)          # Seek to end of file.
                 file_size = fileobj.tell()
                 fileobj.seek(0, 0)
 
@@ -435,7 +456,7 @@ class Site(object):
                 if not info:
                     info = {}
                 if self.handle_api_result(info, kwargs=predata):
-                    return info.get('upload', {})
+                    return info.get('upload', {}) # 'upload' should be the only key...
             except errors.HTTPStatusError as exc:
                 e = exc.args if pythonver >= 3 else exc
                 if e[0] == 503 and e[1].getheader('X-Database-Lag'):
