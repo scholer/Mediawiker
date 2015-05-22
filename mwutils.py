@@ -188,7 +188,7 @@ def get_connect(password=''):
     try:
         # I have modified mwclient in order to be able to pass in custom cookies
         sitecon = mwclient.Site(host=host, path=path, inject_cookies=inject_cookies)
-    except (mwclient.HTTPStatusError, errors.HTTPStatusError) as exc:
+    except mwclient.HTTPStatusError as exc:
         e = exc.args if pythonver >= 3 else exc
         is_use_http_auth = site_params.get('use_http_auth', False)
         http_auth_login = site_params.get('http_auth_login', '')
@@ -219,7 +219,7 @@ def get_connect(password=''):
         else:
             sublime.status_message('HTTP connection failed: %s' % e[1])
             raise Exception('HTTP connection failed.')
-    except (mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
+    except mwclient.HTTPRedirectError as exc:
         # if redirect to '/login.php' page:
         msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired. (HTTPRedirectError: %s)' % exc
         print(msg)
@@ -231,7 +231,7 @@ def get_connect(password=''):
         try:
             sitecon.login(username=username, password=password, domain=domain)
             sublime.status_message('Logon successfully.')
-        except errors.LoginError as e:
+        except mwclient.LoginError as e:
             sublime.status_message('Login failed: %s' % e[1]['result'])
             return
     elif inject_cookies:
@@ -242,12 +242,12 @@ def get_connect(password=''):
     return sitecon
 
 
-### Primitive attempt at saving connection between calls.
-### Making a new mw.get_connect every time seems in-efficient...
 
 class SiteconnMgr():
     """
     Site connection manager.
+    Primitive attempt at saving connection between calls.
+    Making a new mw.get_connect every time seems in-efficient...
     Currently just used to provide a cachable connection.
     """
 
@@ -317,11 +317,8 @@ def strquote(string_value, quote_plus=None, safe=None):
         The parameter safe='/' specified which characters not to touch.
     quote_plus will further replace spaces with '+' and defaults to safe='' (i.e. all reserved are replaced.)
     Note that the 'safe' argument only applies when quoting; unquoting will always convert all.
-
-    Consider using (un)quote_plus variants.
-    This will escape '/' to '%2F' and replace space ' ' with '+' rather than '%20'.
     """
-    # Support for "quote_plus":
+    # Support for "quote_plus": escapes '/' to '%2F' and space ' ' with '+' rather than '%20'
     if quote_plus is None:
         quote_plus = get_setting("mediawiki_quote_plus", False)
     if safe is None:
@@ -342,10 +339,8 @@ def strunquote(string_value, quote_plus=None):
         unquote = urllib.parse.unquote_plus if quote_plus else urllib.parse.unquote
         return unquote(string_value)
     else:
-        # Python 2 urllib does not handle unicode. However, is it really needed to encode/decode?
         unquote = urllib.unquote_plus if quote_plus else urllib.quote
         return unquote(string_value.encode('ascii')).decode('utf-8')
-
 
 
 def pagename_clear(pagename):
@@ -366,7 +361,6 @@ def pagename_clear(pagename):
 
     sublime.status_message('Page name was cleared.')
     return pagename
-
 
 
 def get_title():
@@ -412,7 +406,18 @@ def get_filename(title):
             os.makedirs(filedir)
         return filename
     return os.path.join(file_rootdir, strquote(title))
-    # If you use subdirs, then you should also adjust get_title() so that is can accomodate:
+
+
+def get_hlevel(header_string, substring):
+    return int(header_string.count(substring) / 2)
+
+
+def get_category(category_full_name):
+    ''' From full category name like "Category:Name" return tuple (Category, Name) '''
+    if ':' in category_full_name:
+        return category_full_name.split(':')
+    else:
+        return 'Category', category_full_name
 
 
 def get_page_url(page_name=''):
@@ -435,20 +440,6 @@ def get_page_url(page_name=''):
         return '%s://%s%s%s' % (proto, site, pagepath, page_name)
     else:
         return ''
-
-
-def get_hlevel(header_string, substring):
-    return int(header_string.count(substring) / 2)
-
-
-
-
-def get_category(category_full_name):
-    ''' From full category name like "Category:Name" return tuple (Category, Name) '''
-    if ':' in category_full_name:
-        return category_full_name.split(':')
-    else:
-        return 'Category', category_full_name
 
 
 
@@ -537,7 +528,6 @@ def substitute_template_params(template, params, defaultvalue='', keep_unmatched
         'first: 1st and another: {{{secondparam}}}'
     """
     pattern = r"\{{3}(.*?)\}{3}"
-    # match.group(0) returns the full match, match.group(N) returns the Nth subgroup match.
     if keep_unmatched:
         def repl(match):
             return params.get(match.group(1), match.group(0))
@@ -547,6 +537,21 @@ def substitute_template_params(template, params, defaultvalue='', keep_unmatched
     return re.sub(pattern, repl, template)
 
 
+# classes..
+
+class InputPanel:
+
+    def __init__(self):
+        self.window = sublime.active_window()
+
+    def show_input(self, panel_title='Input', value_pre=''):
+        self.window.show_input_panel(panel_title, value_pre, self.on_done, self.on_change, None)
+
+    def on_done(self, value):
+        pass
+
+    def on_change(self, value):
+        pass
 
 
 class PasswordHider():
