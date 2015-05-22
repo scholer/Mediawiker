@@ -47,44 +47,33 @@ import os
 import sys
 import webbrowser
 import re
-import sublime
-import sublime_plugin
 from datetime import date
 from functools import partial
 import difflib
+import sublime
+import sublime_plugin
+
+# https://github.com/wbond/sublime_package_control/wiki/Sublime-Text-3-Compatible-Packages
+# http://www.sublimetext.com/docs/2/api_reference.html
+# http://www.sublimetext.com/docs/3/api_reference.html
+# sublime.message_dialog
 
 
-if int(sublime.version()) > 3000:
-    st_version = 3
-else:
-    st_version = 2
-    FileExistsError = WindowsError  # pylint: disable=W0622
-
-# Load local modules, depending on PYTHONVER = sys.version_info[0]
 if sys.version_info[0] >= 3:
-    # NOTE: load from package, not used now because custom ssl
-    # current_dir = dirname(__file__)
-    # if '.sublime-package' in current_dir:
-    #     sys.path.append(current_dir)
-    #     import mwclient
-    # else:
-    #     from . import mwclient
-    from . import mwclient
-    from .mwclient import errors
     from . import mwutils as mw
+    from .mwclient import errors
     try:
         from .lib.cookieshop.chrome_extract import get_chrome_cookies
     except ImportError as exc:
-        print("ImportError while importing .lib.cookieshop.chrome_extract module:", exc)
-        print("- get_chrome_cookies function will not be available...")
+        print("Error importing cookieshop.chrome_extract: %s - cookie extraction will not be available..." % exc)
 else:
-    from mwclient import errors
     import mwutils as mw
-    from lib.cookieshop.chrome_extract import get_chrome_cookies
-
-
-# Initialize logging system (only kicks in if not initialized already...)
-# mw.init_logging() # Edit: This is re-delegated to sublime_logging plugin...
+    from mwclient import errors
+    try:
+        from lib.cookieshop.chrome_extract import get_chrome_cookies
+    except ImportError as exc:
+        print("Error importing cookieshop.chrome_extract: %s - cookie extraction will not be available..." % exc)
+    FileExistsError = WindowsError
 
 
 # Define constants:
@@ -93,9 +82,9 @@ IMAGE_NAMESPACE = 6  # image namespace number
 TEMPLATE_NAMESPACE = 10  # template namespace number
 
 
-
 # Module-level site manager:
 sitemgr = mw.SiteconnMgr()
+
 
 ##### WINDOW COMMANDS #######
 
@@ -107,23 +96,6 @@ sitemgr = mw.SiteconnMgr()
 ##  ##  ##  ##  ##   ### ##     ## ##     ## ##  ##  ##    ##    ## ##     ## ##     ## ##    ##
  ###  ###  #### ##    ## ########   #######   ###  ###      ######  ##     ## ########   ######
 
-
-class MediawikerTestCmdCommand(sublime_plugin.WindowCommand):
-    """
-    Used for quick testing inside sublime.
-    Command string mediawiker_test_a
-    """
-    def run(self, action=None, textcommand=True, kwargs=None):
-        if True:
-            if kwargs is None:
-                kwargs = {}
-            print("Running test command: '%s'" % action)
-            if textcommand:
-                self.window.active_view().run_command(action, kwargs)
-            else:
-                self.window.run_command(action, kwargs)
-        else:
-            print("Custom test...")
 
 
 class MediawikerPageCommand(sublime_plugin.WindowCommand):
@@ -153,7 +125,7 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
     is_inputfixed = False
     run_in_new_window = False
 
-    def run(self, action, title='', args=None):
+    def run(self, action, title='', site_active=None, args=None):
         """ Entry point, invoked with action keyword and optionally a pre-defined title. """
         self.action = action
         self.action_args = args
@@ -325,9 +297,11 @@ class MediawikerAskReopenPageCommand(sublime_plugin.WindowCommand):
     Will ask for confirmation before invoking the normal reopen page command.
     Command string: mediawiker_ask_reopen_page
     """
-    def run(self):
+    def run(self, prompt=True):
         """ Command entry point. """
-        do_reopen = sublime.ok_cancel_dialog("Re-open page? (Note: This will overwrite existing content in current view.)")
+        do_reopen = True
+        if prompt:
+            do_reopen = sublime.ok_cancel_dialog("Re-open page? (Note: This will overwrite existing content in current view.)")
         if do_reopen:
             print("Reopening page, do_reopen =", do_reopen)
             self.window.run_command("mediawiker_page", {"action": "mediawiker_reopen_page"})
@@ -341,7 +315,7 @@ class MediawikerPostPageCommand(sublime_plugin.WindowCommand):
     Command string: mediawiker_post_page
     """
     def run(self):
-        """ Command entry point. """
+        """ Invoke mediawiker_page command with action=mediawiker_publish_page. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_publish_page"})
 
 
@@ -351,7 +325,7 @@ class MediawikerSetCategoryCommand(sublime_plugin.WindowCommand):
     Command string: mediawiker_set_category
     """
     def run(self):
-        """ Command entry point. """
+        """ Invoke mediawiker_page command with action=mediawiker_add_category. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_add_category"})
 
 
@@ -361,7 +335,7 @@ class MediawikerInsertImageCommand(sublime_plugin.WindowCommand):
     Command string: mediawiker_insert_image
     """
     def run(self):
-        """ Command entry point. """
+        """ Invoke mediawiker_page command with action=mediawiker_add_image. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_add_image"})
 
 
@@ -371,30 +345,20 @@ class MediawikerInsertTemplateCommand(sublime_plugin.WindowCommand):
     Command string: mediawiker_insert_template
     """
     def run(self):
-        """ Command entry point. """
+        """ Invoke mediawiker_page command with action=mediawiker_add_template. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_add_template"})
 
 
 class MediawikerFileUploadCommand(sublime_plugin.WindowCommand):
     """
-    Alias to Upload TextCommand.
+    WindowCommand Alias to Upload TextCommand.
     Command string: mediawiker_file_upload
+    Use ignorewarnings=True to allow the file to update an existing file on the server.
     """
-    def run(self):
-        """ Command entry point. """
-        self.window.run_command("mediawiker_page", {"action": "mediawiker_upload"})
-
-
-class MediawikerUpdateFileCommand(sublime_plugin.WindowCommand):
-    """
-    Command string: mediawiker_file_upload
-    Invokes Upload TextCommand with ignorewarnings=True parameter, via the usual
-    MediawikerPageCommand+MediawikerValidateConnectionParamsCommand chain.
-    """
-    def run(self):
-        """ Command entry point. """
-        self.window.run_command("mediawiker_page",
-                                {"action": "mediawiker_upload", "args": {"ignorewarnings": True}})
+    def run(self, ignorewarnings=False):
+        """ Invoke mediawiker_page command with action=mediawiker_upload. """
+        self.window.run_command("mediawiker_page", {"action": "mediawiker_upload",
+                                                    "args": {"ignorewarnings": ignorewarnings}})
 
 
 class MediawikerCategoryTreeCommand(sublime_plugin.WindowCommand):
@@ -403,7 +367,7 @@ class MediawikerCategoryTreeCommand(sublime_plugin.WindowCommand):
     Command string: mediawiker_category_tree
     """
     def run(self):
-        """ Command entry point. """
+        """ Invoke mediawiker_page command with action=mediawiker_category_list. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_category_list"})
 
 
@@ -413,7 +377,7 @@ class MediawikerSearchStringCommand(sublime_plugin.WindowCommand):
     Command string: mediawiker_search_string
     """
     def run(self):
-        """ Command entry point. """
+        """ Invoke mediawiker_page command with action=mediawiker_search_string_list. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_search_string_list"})
 
 
@@ -421,7 +385,7 @@ class MediawikerPageListCommand(sublime_plugin.WindowCommand):
     """ Display a panel to the user with recent pages for the active site. Command string: mediawiker_page_list"""
 
     def run(self, storage_name='mediawiker_pagelist'):
-        """ Command entry point. """
+        """ Display a list of recent pages to the user. """
         site_name_active = mw.get_setting('mediawiki_site_active')
         mediawiker_pagelist = mw.get_setting(storage_name, {})
         self.my_pages = mediawiker_pagelist.get(site_name_active, [])
@@ -463,15 +427,17 @@ class MediawikerEditPanelCommand(sublime_plugin.WindowCommand):
             try:
                 action_type = self.options[index]['type']
                 action_value = self.options[index]['value']
+                action_args = self.options[index].get('args') # None is an acceptable value for run_command args
+                print("Mediawiker Panel selection: action_type=%s, action_value=%s, action_args=%s" % (action_type, action_value, action_args))
                 if action_type == 'snippet':
                     # run snippet
                     self.window.active_view().run_command("insert_snippet", {"name": action_value})
                 elif action_type == 'window_command':
                     # run command
-                    self.window.run_command(action_value)
+                    self.window.run_command(action_value, action_args)
                 elif action_type == 'text_command':
                     # run command
-                    self.window.active_view().run_command(action_value)
+                    self.window.active_view().run_command(action_value, action_args)
             except ValueError as e:
                 sublime.status_message(e)
 
@@ -819,7 +785,7 @@ class MediawikerPageDiffVsServerCommand(sublime_plugin.WindowCommand):
         # the MediawikerPageCommand->MediawikerValidateConnectionParamsCommand command chain...
         try:
             sitecon = mw.get_connect(password=None)
-        except (mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
+        except (mw.mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
             msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired.\n-- %s' % exc
             sublime.status_message(msg)
             return
@@ -843,17 +809,6 @@ class MediawikerPageDiffVsServerCommand(sublime_plugin.WindowCommand):
             else:
                 diff_view.set_syntax_file("Packages/Diff/Diff.tmLanguage")
         diff_view.run_command('mediawiker_insert_text', {'text': diff_text})
-
-
-
-
-class MediawikerPageDiffLatestCommand(sublime_plugin.TextCommand):
-    """
-    Command string: mediawiker_page_diff_latest
-    """
-    def run(self, edit, title, password):
-        pass
-
 
 
 
@@ -886,10 +841,10 @@ class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
             # Note: Probably better to use built-in command, "insert":
             # { "keys": ["enter"], "command": "insert", "args": {"characters": "\n"} }
             position = self.view.sel()[0].begin()
-            #position = self.view.size()
+        elif position == -1:
+            position = self.view.size()
         self.view.insert(edit, position, text)
         print("Inserted %s chars at pos %s" % (len(text), position))
-
 
 
 class MediawikerShowPageCommand(sublime_plugin.TextCommand):
@@ -897,7 +852,6 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
     When run is invoked, loads the page with the given title from server
     into the view through which this TextCommand was invoked, erasing
     all previous content in the view.
-
     The run requires a 'password' argument; this is often obtained by invoking this
     through the MediawikerPageCommand WindowCommand (which again obtains the password
     if required by invoking MediawikerValidateConnectionParamsCommand).
@@ -905,7 +859,7 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
     def run(self, edit, title, password):
         try:
             sitecon = mw.get_connect(password)
-        except (mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
+        except (mw.mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
             msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired.'
             sublime.status_message(msg)
             print(msg + "; Error:", exc)
@@ -1276,7 +1230,6 @@ class MediawikerCsvTableCommand(sublime_plugin.TextCommand):
         return []
 
 
-
 class MediawikerTableWikiToSimpleCommand(sublime_plugin.TextCommand):
     ''' convert selected (or under cursor) wiki table to Simple table (TableEdit plugin). Command string: mediawiker_table_wiki_to_simple '''
 
@@ -1618,7 +1571,6 @@ class MediawikerAddImageCommand(sublime_plugin.TextCommand):
             self.view.run_command('mediawiker_insert_text', {'position': index_of_cursor, 'text': '[[Image:%s]]' % self.images_names[idx]})
 
 
-
 class MediawikerAddTemplateCommand(sublime_plugin.TextCommand):
     password = ''
     templates_names = []
@@ -1642,7 +1594,6 @@ class MediawikerAddTemplateCommand(sublime_plugin.TextCommand):
             text = template.edit()
             params_text = mw.get_template_params_str(text)
             index_of_cursor = self.view.sel()[0].begin()
-            # Create "{{myTemplate:}}
             template_text = '{{%s%s}}' % (self.templates_names[idx], params_text)
             self.view.run_command('mediawiker_insert_text', {'position': index_of_cursor, 'text': template_text})
 
@@ -1657,7 +1608,6 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
         title:          Not used (placeholder required for the whole MediawikerPageCommand+MediawikerValidateConnectionParamsCommand)
         ignorewarnings: Add "ignorewarnings"=true parameter to the query (required to upload a
                         new/updated version of an existing image.)
-                        (NOT IMPLEMENTED YET).
     """
 
     password = None
@@ -1693,8 +1643,19 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
             self.file_descr = '%s as %s' % (os.path.basename(self.file_path), self.file_destname)
         try:
             with open(self.file_path, 'rb') as f:
-                sitecon.upload(f, self.file_destname, self.file_descr, ignore=self.ignorewarnings)
-            sublime.status_message('File %s successfully uploaded to wiki as %s' % (self.file_path, self.file_destname))
+                status = sitecon.upload(f, self.file_destname, self.file_descr, ignore=self.ignorewarnings)
+            print("Upload status: %s" % status)
+            if status.get('result').lower() != "success":
+                warnings = status.get('warnings', {})
+                if 'exists' in warnings:
+                    msg = "Upload error: Filename '%s' already exists on server!" % self.file_destname
+                else:
+                    msg = "Upload error! Result=%s, Warnings: %s" % \
+                          (status.get('result'), ", ".join("{}:{}".format(k, v) for k, v in warnings.items()))
+                print(msg)
+            else:
+                msg = 'File %s successfully uploaded to wiki as %s' % (self.file_path, self.file_destname)
+            sublime.status_message(msg)
         except IOError as e:
             sublime.message_dialog('Upload io error: %s' % e)
             return
@@ -1704,20 +1665,6 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
             return
         link_text = '[[File:%(destname)s]]' % {'destname': self.file_destname}
         self.view.run_command('mediawiker_insert_text', {'position': None, 'text': link_text})
-
-
-
-class MediawikerBatchUploadCommand(sublime_plugin.WindowCommand):
-    """
-    Windows command alias for MediawikerUploadBatchViewCommand.
-    Command string: mediawiker_batch_upload
-
-    Note: Does it make sense to run this without an active view?
-    Windows Commands should always be able to run even if no view is open.
-    """
-    def run(self):
-        self.window.active_view().run_command("mediawiker_upload_batch_view")
-
 
 
 class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):

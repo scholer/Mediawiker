@@ -33,7 +33,7 @@
         {"caption": "Post page", "type": "window_command", "value": "mediawiker_post_page"},
         {"caption": "Pages history", "type": "window_command", "value": "mediawiker_page_list"},
         {"caption": "File upload", "type": "window_command", "value": "mediawiker_file_upload"},
-        {"caption": "Update file (upload new version)", "type": "window_command", "value": "mediawiker_update_file"},
+        {"caption": "Update file (upload new version)", "type": "window_command", "value": "mediawiker_file_upload", "args": {"ignorewarnings": true}},
         {"caption": "Batch upload files in current view", "type": "text_command", "value": "mediawiker_upload_batch_view"},
         {"caption": "Insert image", "type": "window_command", "value": "mediawiker_insert_image"},
         {"caption": "New experiment page", "type": "window_command", "value": "mediawiker_new_experiment"},
