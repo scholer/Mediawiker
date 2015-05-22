@@ -47,27 +47,29 @@ import os
 import sys
 import webbrowser
 import re
-import sublime
-import sublime_plugin
 from datetime import date
 from functools import partial
 import difflib
+import sublime
+import sublime_plugin
 
+# https://github.com/wbond/sublime_package_control/wiki/Sublime-Text-3-Compatible-Packages
+# http://www.sublimetext.com/docs/2/api_reference.html
+# http://www.sublimetext.com/docs/3/api_reference.html
+# sublime.message_dialog
 
 if sys.version_info[0] >= 3:
-    from . import mwclient
-    from .mwclient import errors
     from . import mwutils as mw
+    from .mwclient import errors
     try:
         from .lib.cookieshop.chrome_extract import get_chrome_cookies
     except ImportError as exc:
         print("ImportError while importing .lib.cookieshop.chrome_extract module:", exc)
         print("- get_chrome_cookies function will not be available...")
 else:
-    from mwclient import errors
     import mwutils as mw
+    from mwclient import errors
     from lib.cookieshop.chrome_extract import get_chrome_cookies
-
     FileExistsError = WindowsError  # pylint: disable=W0622
 
 # Initialize logging system (only kicks in if not initialized already...)
@@ -80,54 +82,14 @@ IMAGE_NAMESPACE = 6  # image namespace number
 TEMPLATE_NAMESPACE = 10  # template namespace number
 
 
-# Initialize logging system (only kicks in if not initialized already...)
-mw.init_logging()
-
 # Module-level site manager:
 sitemgr = mw.SiteconnMgr()
-
-
-
-class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
-
-     def run(self, edit, position, text):
-         self.view.insert(edit, position, text)
-
-
-class MediawikerReplaceTextCommand(sublime_plugin.TextCommand):
-
-    def run(self, edit, text):
-        self.view.replace(edit, self.view.sel()[0], text)
 
 
 
 
 ##### WINDOW COMMANDS #######
 
-
-
-class MediawikerTestCmdCommand(sublime_plugin.WindowCommand):
-    """
-    Used for quick testing inside sublime.
-    Command string mediawiker_test_a
-    """
-    def run(self, action=None, textcommand=True, kwargs=None):
-        if True:
-            if kwargs is None:
-                kwargs = {}
-            print("Running test command: '%s'" % action)
-            if textcommand:
-                self.window.active_view().run_command(action, kwargs)
-            else:
-                self.window.run_command(action, kwargs)
-        else:
-            print("Custom test...")
-
-
-class MediawikerReplaceTextCommand(sublime_plugin.TextCommand):
-
-    def run(self, edit, text):
-        self.view.replace(edit, self.view.sel()[0], text)
 
 
 class MediawikerPageCommand(sublime_plugin.WindowCommand):
@@ -157,6 +119,7 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
 
     def run(self, action, title='', site_active=None, args=None):
         """ Entry point, invoked with action keyword and optionally a pre-defined title. """
+        self.site_active = site_active
         self.action = action
         self.action_args = args
 
@@ -723,7 +686,7 @@ class MediawikerPageDiffVsServerCommand(sublime_plugin.WindowCommand):
         # the MediawikerPageCommand->MediawikerValidateConnectionParamsCommand command chain...
         try:
             sitecon = mw.get_connect(password=None)
-        except (mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
+        except (mw.mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
             msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired.\n-- %s' % exc
             sublime.status_message(msg)
             return
@@ -783,17 +746,24 @@ class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
         cursor_position = self.view.sel()[0].begin()
         end_of_file = self.view.size()
         start_of_file = 0
+    # Note: Probably better to use built-in command, "insert":
+    # { "keys": ["enter"], "command": "insert", "args": {"characters": "\n"} }
     """
     def run(self, edit, position=None, text=''):
         """ TextCommand entry point, edit token is provided by Sublime. """
         if position is None:
-            # Note: Probably better to use built-in command, "insert":
-            # { "keys": ["enter"], "command": "insert", "args": {"characters": "\n"} }
             position = self.view.sel()[0].begin()
-            #position = self.view.size()
+        elif position == -1:
+            position = self.view.size()
         self.view.insert(edit, position, text)
         print("Inserted %s chars at pos %s" % (len(text), position))
 
+
+class MediawikerReplaceTextCommand(sublime_plugin.TextCommand):
+    """ Note: probably better to use build-in command replace. """
+
+    def run(self, edit, text):
+        self.view.replace(edit, self.view.sel()[0], text)
 
 
 class MediawikerShowPageCommand(sublime_plugin.TextCommand):
@@ -809,7 +779,7 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
     def run(self, edit, title, password):
         try:
             sitecon = mw.get_connect(password)
-        except (mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
+        except (mw.mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
             msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired.'
             sublime.status_message(msg)
             print(msg + "; Error:", exc)
@@ -849,7 +819,9 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
             #self.view._wikipage_title = title # Save this.
             self.view.run_command('mediawiker_insert_text', {'position': 0, 'text': text})
         sublime.status_message('Page %s was opened successfully from %s.' % (title, mw.get_view_site()))
-        self.view.set_scratch(True)
+        if not mw.get_setting('mediawiker_title_to_filename', True):
+            # Scratch views cannot be saved:
+            self.view.set_scratch(True)
         # own is_changed flag instead of is_dirty for possib. to reset..
         self.view.settings().set('is_changed', False)
 
@@ -1542,7 +1514,6 @@ class MediawikerAddImageCommand(sublime_plugin.TextCommand):
             self.view.run_command('mediawiker_insert_text', {'position': index_of_cursor, 'text': '[[Image:%s]]' % self.images_names[idx]})
 
 
-
 class MediawikerAddTemplateCommand(sublime_plugin.TextCommand):
     password = ''
     templates_names = []
@@ -1566,7 +1537,6 @@ class MediawikerAddTemplateCommand(sublime_plugin.TextCommand):
             text = template.edit()
             params_text = mw.get_template_params_str(text)
             index_of_cursor = self.view.sel()[0].begin()
-            # Create "{{myTemplate:}}
             template_text = '{{%s%s}}' % (self.templates_names[idx], params_text)
             self.view.run_command('mediawiker_insert_text', {'position': index_of_cursor, 'text': template_text})
 
@@ -1639,7 +1609,7 @@ class MediawikerBatchUploadCommand(sublime_plugin.WindowCommand):
     Note: Does it make sense to run this without an active view?
     Windows Commands should always be able to run even if no view is open.
     """
-    def run(self):
+    def run(self):     # invoked by mediawiker_batch_upload
         self.window.active_view().run_command("mediawiker_upload_batch_view")
 
 
@@ -1914,6 +1884,7 @@ class MediawikerInsertBigTextCommand(sublime_plugin.TextCommand):
         else:
             print("No text input - self.text = %s" % (self.text, ))
 
+
 class MediawikerInsertBigTodoCommand(MediawikerInsertBigTextCommand):
     """
     Inserts big 'TODO' text.
@@ -1922,6 +1893,7 @@ class MediawikerInsertBigTodoCommand(MediawikerInsertBigTextCommand):
     def adjustText(self, bigtext):
         """ Can be over-written by subclasses to modify the big-text. """
         return mw.adjust_figlet_todo(bigtext, self.text)
+
 
 class MediawikerInsertBigCommentCommand(MediawikerInsertBigTextCommand):
     """
