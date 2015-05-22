@@ -58,7 +58,6 @@ import sublime_plugin
 # http://www.sublimetext.com/docs/3/api_reference.html
 # sublime.message_dialog
 
-
 if sys.version_info[0] >= 3:
     from . import mwutils as mw
     from .mwclient import errors
@@ -266,7 +265,6 @@ class MediawikerValidateConnectionParamsCommand(sublime_plugin.WindowCommand):
         self.window.active_view().run_command(self.action, action_args)
 
 
-
 class MediawikerOpenPageCommand(sublime_plugin.WindowCommand):
     """
     Open a page, using mediawiker_page->mediawiker_validate_connection_params->mediawiker_show_page command chain.
@@ -281,24 +279,15 @@ class MediawikerReopenPageCommand(sublime_plugin.WindowCommand):
     """
     Reopen the current views's page (in current view).
     Will overwrite current view's buffer content.
+    If prompt=True, sublime will ask for confirmation before overwriting the buffer.
     Command string: mediawiker_reopen_page
     """
-    def run(self):
+    def run(self, prompt=False):
         """
-        Yeah, this is kind of a weird one. MediawikerPageCommand will intercept
-        'mediawiker_reopen_page' action and use 'mediawiker_show_page' instead (plus some extra stuff to prepare).
+        MediawikerPageCommand will intercept 'mediawiker_reopen_page' action and
+        use 'mediawiker_show_page' instead (plus some extra stuff to prepare).
         So, no - it is not an infinite loop, although it would seem like it ;-)
         """
-        self.window.run_command("mediawiker_page", {"action": "mediawiker_reopen_page"})
-
-class MediawikerAskReopenPageCommand(sublime_plugin.WindowCommand):
-    """
-    Reopen the current views's page (in current view).
-    Will ask for confirmation before invoking the normal reopen page command.
-    Command string: mediawiker_ask_reopen_page
-    """
-    def run(self, prompt=True):
-        """ Command entry point. """
         do_reopen = True
         if prompt:
             do_reopen = sublime.ok_cancel_dialog("Re-open page? (Note: This will overwrite existing content in current view.)")
@@ -1618,7 +1607,7 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
     def run(self, edit, password, title='', ignorewarnings=False):
         self.password = password
         self.ignorewarnings = ignorewarnings
-        if ignorewarnings or True:
+        if ignorewarnings:
             print("MediawikerUploadCommand: Using ignorewarnings =", ignorewarnings)
         sublime.active_window().show_input_panel('File path:', '', self.get_destfilename, None, None)
 
