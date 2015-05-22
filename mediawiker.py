@@ -248,6 +248,7 @@ class MediawikerReopenPageCommand(sublime_plugin.WindowCommand):
     If prompt=True, sublime will ask for confirmation before overwriting the buffer.
     Command string: mediawiker_reopen_page
     """
+
     def run(self, prompt=False):
         """
         MediawikerPageCommand will intercept 'mediawiker_reopen_page' action and
@@ -265,79 +266,60 @@ class MediawikerReopenPageCommand(sublime_plugin.WindowCommand):
 
 
 class MediawikerPostPageCommand(sublime_plugin.WindowCommand):
-    """
-    Invoke MediawikerPublishPageCommand (TextCommand) via MediawikerPageCommand.
-    Command string: mediawiker_post_page
-    """
+    ''' Invoke MediawikerPublishPageCommand via MediawikerPageCommand. Command string: mediawiker_post_page '''
+
     def run(self):
-        """ Invoke mediawiker_page command with action=mediawiker_publish_page. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_publish_page"})
 
 
 class MediawikerSetCategoryCommand(sublime_plugin.WindowCommand):
-    """
-    Invoke MediawikerAddCategoryCommand (text command) via MediawikerPageCommand.
-    Command string: mediawiker_set_category
-    """
+    ''' Invoke MediawikerAddCategoryCommand via MediawikerPageCommand. Command string: mediawiker_set_category '''
+
     def run(self):
-        """ Invoke mediawiker_page command with action=mediawiker_add_category. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_add_category"})
 
 
 class MediawikerInsertImageCommand(sublime_plugin.WindowCommand):
-    """
-    Invoke MediawikerAddImageCommand (text command) via MediawikerPageCommand.
-    Command string: mediawiker_insert_image
-    """
+    ''' Invoke MediawikerAddImageCommand via MediawikerPageCommand. Command string: mediawiker_insert_image '''
+
     def run(self):
-        """ Invoke mediawiker_page command with action=mediawiker_add_image. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_add_image"})
 
 
 class MediawikerInsertTemplateCommand(sublime_plugin.WindowCommand):
-    """
-    Invoke MediawikerAddTemplateCommand (text command) via MediawikerPageCommand.
-    Command string: mediawiker_insert_template
-    """
+    ''' Invoke MediawikerAddTemplateCommand via MediawikerPageCommand. Command string: mediawiker_insert_template '''
+
     def run(self):
-        """ Invoke mediawiker_page command with action=mediawiker_add_template. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_add_template"})
 
 
 class MediawikerFileUploadCommand(sublime_plugin.WindowCommand):
-    """
-    WindowCommand Alias to Upload TextCommand.
-    Command string: mediawiker_file_upload
-    Use ignorewarnings=True to allow the file to update an existing file on the server.
-    """
+    ''' WindowCommand Alias to Upload TextCommand. Command string: mediawiker_file_upload
+    Use ignorewarnings=True to allow the file to update an existing file on the server. '''
+
     def run(self, ignorewarnings=False):
-        """ Invoke mediawiker_page command with action=mediawiker_upload. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_upload",
                                                     "args": {"ignorewarnings": ignorewarnings}})
 
 
 class MediawikerCategoryTreeCommand(sublime_plugin.WindowCommand):
-    """
-    Invoke MediawikerCategoryListCommand (text command) via MediawikerPageCommand.
-    Command string: mediawiker_category_tree
-    """
+    ''' Invoke MediawikerCategoryListCommand (text command) via MediawikerPageCommand.
+    Command string: mediawiker_category_tree '''
+
     def run(self):
-        """ Invoke mediawiker_page command with action=mediawiker_category_list. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_category_list"})
 
 
 class MediawikerSearchStringCommand(sublime_plugin.WindowCommand):
-    """
-    Invoke MediawikerSearchStringListCommand (text command) via MediawikerPageCommand.
-    Command string: mediawiker_search_string
-    """
+    ''' Invoke MediawikerSearchStringListCommand (text command) via MediawikerPageCommand.
+    Command string: mediawiker_search_string '''
+
     def run(self):
-        """ Invoke mediawiker_page command with action=mediawiker_search_string_list. """
         self.window.run_command("mediawiker_page", {"action": "mediawiker_search_string_list"})
 
 
 class MediawikerPageListCommand(sublime_plugin.WindowCommand):
-    """ Display a panel to the user with recent pages for the active site. Command string: mediawiker_page_list"""
+    ''' Display a panel to the user with recent pages for the active site. Command string: mediawiker_page_list '''
 
     def run(self, storage_name='mediawiker_pagelist'):
         """ Display a list of recent pages to the user. """
@@ -408,6 +390,19 @@ class MediawikerCliCommand(sublime_plugin.WindowCommand):
         elif sublime.platform() == 'linux' and url.startswith("'") and url.endswith("'"):
             url = url[1:-1]
         return url.split("://")[1]
+
+
+class MediawikerFavoritesAddCommand(sublime_plugin.WindowCommand):
+    """ Add current page to the favorites list. Command string: mediawiker_favorites_add  (WindowCommand) """
+    def run(self):
+        title = mw.get_title()
+        mw.save_mypages(title=title, storage_name='mediawiker_favorites')
+
+
+class MediawikerFavoritesOpenCommand(sublime_plugin.WindowCommand):
+    """ Open page from the favorites list. Command string: mediawiker_favorites_open (WindowCommand) """
+    def run(self):
+        self.window.run_command("mediawiker_page_list", {"storage_name": 'mediawiker_favorites'})
 
 
 class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
@@ -608,19 +603,6 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
         print("MediawikerNewExperimentCommand completed!\n")
 
 
-class MediawikerFavoritesAddCommand(sublime_plugin.WindowCommand):
-    """ Add current page to the favorites list. Command string: mediawiker_favorites_add  (WindowCommand) """
-    def run(self):
-        title = mw.get_title()
-        mw.save_mypages(title=title, storage_name='mediawiker_favorites')
-
-
-class MediawikerFavoritesOpenCommand(sublime_plugin.WindowCommand):
-    """ Open page from the favorites list. Command string: mediawiker_favorites_open (WindowCommand) """
-    def run(self):
-        self.window.run_command("mediawiker_page_list", {"storage_name": 'mediawiker_favorites'})
-
-
 class MediawikerSetLoginCookie(sublime_plugin.WindowCommand):
     """
     Set login cookie.
@@ -797,6 +779,12 @@ class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
         print("Inserted %s chars at pos %s" % (len(text), position))
 
 
+class MediawikerReplaceTextCommand(sublime_plugin.TextCommand):
+
+    def run(self, edit, text):
+        self.view.replace(edit, self.view.sel()[0], text)
+
+
 class MediawikerShowPageCommand(sublime_plugin.TextCommand):
     """
     When run is invoked, loads the page with the given title from server
@@ -887,7 +875,7 @@ class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
                 mw.save_mypages(self.title)
             else:
                 sublime.status_message('You have not rights to edit this page')
-        except errors.EditError as e:
+        except (mw.mwclient.EditError, errors.EditError) as e:
             sublime.status_message('Can\'t publish page %s (%s)' % (self.title, e))
 
 
