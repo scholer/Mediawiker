@@ -25,7 +25,7 @@ TEMPLATE_NAMESPACE = 10  # template namespace number
 
 
 class MediawikerPageCommand(sublime_plugin.WindowCommand):
-    '''prepare all actions with wiki'''
+    '''prepare all actions with the wiki'''
 
     run_in_new_window = False
     title = None
@@ -138,7 +138,6 @@ class MediawikerSearchStringCommand(sublime_plugin.WindowCommand):
 class MediawikerPageListCommand(sublime_plugin.WindowCommand):
 
     def run(self, storage_name='mediawiker_pagelist'):
-        # site_name_active = mw.get_setting('mediawiki_site_active')
         site_name_active = mw.get_view_site()
         mediawiker_pagelist = mw.get_setting(storage_name, {})
         self.my_pages = mediawiker_pagelist.get(site_name_active, [])
@@ -252,6 +251,7 @@ class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
         self.view.insert(edit, position, text)
         print("Inserted %s chars at pos %s" % (len(text), position))
 
+
 class MediawikerReplaceTextCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, text):
@@ -261,7 +261,6 @@ class MediawikerReplaceTextCommand(sublime_plugin.TextCommand):
 class MediawikerShowPageCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, title, password):
-        is_writable = False
         sitecon = mw.get_connect(password)
         is_writable, text = mw.get_page_text(sitecon, title)
         self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
@@ -277,9 +276,13 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
             self.view.erase(edit, sublime.Region(0, self.view.size()))
             self.view.run_command('mediawiker_insert_text', {'position': 0, 'text': text})
         sublime.status_message('Page %s was opened successfully from %s.' % (title, mw.get_view_site()))
-        self.view.set_scratch(True)
-        # own is_changed flag instead of is_dirty for possib. to reset..
-        self.view.settings().set('is_changed', False)
+        if not mw.get_setting('mediawiker_title_to_filename', False):
+            # We have two modes: (a) The page ONLY lives on the server,
+            # or (b) The page lives primarily on disk and is occationally updated to the server.
+            # mediawiker_title_to_filename setting indicates that the user wants to save the page locally.
+            self.view.set_scratch(True)
+            # own is_changed flag instead of is_dirty for possib. to reset..
+            self.view.settings().set('is_changed', False)
 
 
 class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
@@ -297,7 +300,6 @@ class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
             if self.page.can('edit'):
                 self.current_text = self.view.substr(sublime.Region(0, self.view.size()))
                 if not is_skip_summary:
-                    # summary_message = 'Changes summary (%s):' % mw.get_setting('mediawiki_site_active')
                     summary_message = 'Changes summary (%s):' % mw.get_view_site()
                     self.view.window().show_input_panel(summary_message, '', self.on_done, None, None)
                 else:
@@ -318,7 +320,8 @@ class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
                     mark_as_minor = not mark_as_minor
                     summary = summary[1:]
                 self.page.save(self.current_text, summary=summary.strip(), minor=mark_as_minor)
-                self.view.set_scratch(True)
+                if not mw.get_setting('mediawiker_title_to_filename', False):
+                    self.view.set_scratch(True)
                 self.view.settings().set('is_changed', False)  # reset is_changed flag
                 sublime.status_message('Wiki page %s was successfully published to wiki.' % (self.title))
                 mw.save_mypages(self.title)
@@ -492,7 +495,6 @@ class MediawikerSetActiveSiteCommand(sublime_plugin.WindowCommand):
     site_active = ''
 
     def run(self):
-        # self.site_active = mw.get_setting('mediawiki_site_active')
         self.site_active = mw.get_view_site()
         sites = mw.get_setting('mediawiki_site')
         # self.site_keys = map(self.is_checked, list(sites.keys()))
@@ -622,7 +624,7 @@ class MediawikerCsvTableCommand(sublime_plugin.TextCommand):
 
 
 class MediawikerTableWikiToSimpleCommand(sublime_plugin.TextCommand):
-    ''' convert selected (or under cursor) wiki table to Simple table (TableEdit plugin) '''
+    ''' convert selected (or under cursor) wiki table to Simple table (TableEdit plugin). '''
 
     # TODO: wiki table properties will be lost now...
     def run(self, edit):
@@ -777,7 +779,7 @@ class MediawikerTableSimpleToWikiCommand(sublime_plugin.TextCommand):
         cell_properties = '%s | ' % cell_properties if cell_properties else ''
         try:
             return delimiter.join(' %s%s ' % (cell_properties, cell['cell_data'].strip()) for cell in rowlist)
-        except Exception as e:
+        except (ValueError, KeyError) as e:
             print('Error in data: %s' % e)
 
 
@@ -814,7 +816,7 @@ class MediawikerCategoryListCommand(sublime_plugin.TextCommand):
 
         for page in self.get_list_data(category_root):
             if page.namespace == CATEGORY_NAMESPACE and not self.category_prefix:
-                    self.category_prefix = mw.get_category(page.name)[0]
+                self.category_prefix = mw.get_category(page.name)[0]
             self.add_page(page.name, page.namespace, True)
         if self.pages:
             self.pages_names.sort()
@@ -898,12 +900,12 @@ class MediawikerSearchStringListCommand(sublime_plugin.TextCommand):
         if search_value:
             self.search_result = self.do_search(search_value)
         if self.search_result:
-            for i in range(self.search_limit):
+            for _ in range(self.search_limit):
                 try:
                     page_data = self.search_result.next()
                     self.pages_names.append([page_data['title'], page_data['snippet']])
-                except:
-                    pass
+                except (ValueError, KeyError) as e:
+                    print("Exception during search_result generation:", repr(e))
             te = ''
             search_number = 1
             for pa in self.pages_names:
@@ -1048,16 +1050,16 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
 class MediawikerLoad(sublime_plugin.EventListener):
     def on_activated(self, view):
         current_syntax = view.settings().get('syntax')
-        current_site = mw.get_view_site()
         # TODO: move method to check mediawiker view to mwutils
         if current_syntax is not None and current_syntax.endswith('Mediawiker/Mediawiki.tmLanguage'):
             # Mediawiki mode
             view.settings().set('mediawiker_is_here', True)
             view.settings().set('mediawiker_wiki_instead_editor', mw.get_setting('mediawiker_wiki_instead_editor'))
-            view.settings().set('mediawiker_site', current_site)
+            view.settings().set('mediawiker_site', mw.get_view_site())
 
     def on_modified(self, view):
-        if view.settings().get('mediawiker_is_here', False):
+        if view.settings().get('mediawiker_is_here', False) \
+                and not mw.get_setting('mediawiker_title_to_filename', False):
             is_changed = view.settings().get('is_changed', False)
 
             if is_changed:
