@@ -8,106 +8,34 @@ Utility module for Mediawikier package.
 
 To import from within Sublime:
 >>> from Mediawiker import mwutils as mw
-
 """
+
 from __future__ import print_function
 import sys
 import os
+import re
 import urllib
 import base64
 from hashlib import md5
 import uuid
-import re
 
 import sublime
 
-PYTHONVER = sys.version_info[0]
+pythonver = sys.version_info[0]
 
 # Load local modules:
-if PYTHONVER >= 3:
+if pythonver >= 3:
     from . import mwclient
     from .mwclient import errors
     from .lib.cache_decorator import cached_property
 else:
-    from lib.cache_decorator import cached_property
     import mwclient
     from mwclient import errors
-
-
-## Set up logging:
-import logging
-logger = logging.getLogger(__name__)
-def init_logging(args=None, prefix="Mediawiker"):
-    """
-    Set up standard logging system:
-    Comments include other examples of how to set up logging,
-    both a streamhandler (output to console per default) and a filehandler.
-    """
-    # Examples of different log formats:
-    loguserfmt = "%(asctime)s %(levelname)-5s %(name)20s:%(lineno)-4s%(funcName)20s() %(message)s"
-    logtimefmt = "%H:%M:%S" # For output to user in console
-    # basicConfig only has an effect if no logging system have been set up:
-    logging.basicConfig(level=logging.DEBUG, format=loguserfmt, datefmt=logtimefmt)    # filename='example.log',
-
-
-### Add pyfiglet library to path: ###
-# (pyfiglet is used to print big ascii letters and is used by e.g. MediawikerInsertBigTodoTextCommand)
-# pwaller's original pyfiglet uses pkg_resources module,
-# which is not available in Sublime Text.
-# The packaged pyfiglet.zip therefore includes pkg_resources.py.
-try:
-    # Use up-to-date external library, if available:
-    from pyfiglet import Figlet
-except ImportError:
-    # Use included library:
-    PYFIGLET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib', 'pyfiglet.zip')
-    sys.path.append(PYFIGLET_PATH)
-    try:
-        from pyfiglet import Figlet
-        print("Imported pyfiglet from local zip library.")
-    except ImportError:
-        print("Could not import local pyfiglet from zip; big text will not be available.")
-
-# Pyfiglet usage functions. Re-factored out so they can be used elsewhere as well:
-def get_figlet_text(text):
-    """ Returns a big "ascii art"-like text spelling the words in text. """
-    font = 'colossal' # This is case *sensitive* (on *nix and if pyfiglet is zipped).
-    try:
-        printer = Figlet(font)
-    except NameError:
-        print("ERROR, could not import pyfiglet, big text not available.")
-        print("sys.path=", sys.path)
-        return text
-    printer.Font.smushMode = 64
-    return printer.renderText(text)
-
-def adjust_figlet_todo(bigtext, header=None):
-    """ Adjust figlet to make it a 'TODO' text (indented, fixed-width). """
-    bigtext = bigtext.replace('\r\n', '\n').replace('\r', '\n').rstrip()
-    full = "\n".join("   "+line for line in bigtext.split('\n'))
-    if header:
-        # Add "TODO: xxx" line above to make searching easier.
-        full = "".join([" TODO: ", header, "\n\n", full, '\n'])
-    return full
-
-def adjust_figlet_comment(bigtext, header=''):
-    """ Adjust figlet to make it a comment. """
-    bigtext = bigtext.replace('\r\n', '\n').replace('\r', '\n').rstrip()
-    full = "".join(["<!-- ", header, "\n", bigtext, "\n-->\n"])
-    return full
+    from lib.cache_decorator import cached_property
 
 
 
 ### SETTINGS HANDLING ###
-
-# Uh... Is there really no in-memory settings register???
-# Nope, doesn't seem so. At least, the 'default' plugins (only font.py) does it the same way,
-# load_settings, ..., save_settings.
-
-def save_settings():
-    """ Convenience function to save Mediawiker settings. """
-    sublime.save_settings('Mediawiker.sublime-settings')
-
 
 def get_setting(key, default_value=None):
     """
@@ -126,6 +54,7 @@ def set_setting(key, value):
     settings.set(key, value)
     sublime.save_settings('Mediawiker.sublime-settings')
 
+
 def get_site_params(name=None):
     """ Get site parameters for active site, or site <name> if specified. """
     if name is None:
@@ -134,97 +63,26 @@ def get_site_params(name=None):
     return sites[name]
 
 
-def get_login_cookie_key_and_value(site_name=None, cookie_key=None):
-    """ Used to get the name of the cookie used as login cookie. """
-    ## TODO: Implement get_login_cookie_key better.
-    site_params = get_site_params(site_name)
+def get_view_site():
     try:
-        cookies = site_params['cookies']
-    except KeyError:
-        return None, None
-    if not cookies:
-        return None, None
-    if len(cookies) == 1:
-        return next((k, v) for k, v in cookies.items())
-    if cookie_key is None:
-        if 'login_cookie_name' in site_params:
-            cookie_key = site_params['login_cookie_name']
-        elif 'open_id_session_id' in cookies:
-            cookie_key = 'open_id_session_id'
-        else:
-            return None, None
-    return cookie_key, cookies[cookie_key]
-
-
-def get_login_cookie(cookie_key='open_id_session_id', site_name=None, default=None):
-    """ Get login cookie for active site, or site <site_name> if specified. """
-    site_params = get_site_params(site_name)
-    try:
-        return site_params['cookies'][cookie_key]
-    except KeyError:
-        return default
-
-def set_login_cookie(value, cookie_key='open_id_session_id', site_name=None):
-    """ Set login cookie for active site, or site <site_name> if specified. """
-    site_params = get_site_params(site_name)
-    site_params['cookies'][cookie_key] = value
-    print("Updated site_params:")
-    print(site_params)
-    # mw.save_settings()
-    # sublime.save_settings('Mediawiker.sublime-settings')
-    # Above doesn't seem to work, attempting manual:
-    # Uhm... what is the settings object exactly? Is it a simple dict or something more stupid?
-    # Indeed. It is a sublime.Settings object, which is just a thin wrapper around
-    # sublime_api.settings_*(self.settings_id, ...) functions
-    settings = sublime.load_settings('Mediawiker.sublime-settings')
-    if site_name is None:
-        site_name = settings.get('mediawiki_site_active')
-    sites = settings.get('mediawiki_site')
-    #print("Re-loaded site_params:")
-    #print(sites[site_name])    # This was just to prove that the above doesn't work...
-    sites[site_name]['cookies'][cookie_key] = value
-    settings.set('mediawiki_site', sites)   # Saving the complete 'mediawiki_site' entry, otoh, will persist the change.
-    sublime.save_settings('Mediawiker.sublime-settings')
-
-
-def save_mypages(title, storage_name='mediawiker_pagelist'):
-
-    title = title.replace('_', ' ')  # for wiki '_' and ' ' are equal in page name
-    pagelist_maxsize = get_setting('mediawiker_pagelist_maxsize')
-    site_name_active = get_setting('mediawiki_site_active')
-    mediawiker_pagelist = get_setting(storage_name, {})
-
-    # if site_name_active not in mediawiker_pagelist:
-    #     mediawiker_pagelist[site_name_active] = []
-
-    # my_pages = mediawiker_pagelist[site_name_active]
-    my_pages = mediawiker_pagelist.setdefault(site_name_active, [])
-
-    if my_pages:
-        if title in my_pages:
-            # for sorting - remove *before* trimming size, not after.
-            my_pages.remove(title)
-        while len(my_pages) >= pagelist_maxsize:
-            my_pages.pop(0)
-
-    my_pages.append(title)
-    set_setting(storage_name, mediawiker_pagelist)
-
-
+        return sublime.active_window().active_view().settings().get('mediawiker_site', get_setting('mediawiki_site_active'))
+    except:
+        # st2 exception on start.. sublime not available on activated..
+        return get_setting('mediawiki_site_active')
 
 
 ### CONNECTION HANDLING ###
 
 def enco(value):
     ''' for md5 hashing string must be encoded '''
-    if PYTHONVER >= 3:
+    if pythonver >= 3:
         return value.encode('utf-8')
     return value
 
 
 def deco(value):
     ''' for py3 decode from bytes '''
-    if PYTHONVER >= 3:
+    if pythonver >= 3:
         return value.decode('utf-8')
     return value
 
@@ -271,22 +129,52 @@ def get_digest_header(header, username, password, path):
     return auth
 
 
+def http_auth(http_auth_header, host, path, login, password):
+    sitecon = None
+    DIGEST_REALM = 'Digest realm'
+    BASIC_REALM = 'Basic realm'
+
+    # http_auth_header = e[1].getheader('www-authenticate')
+    custom_headers = {}
+    realm = None
+    if http_auth_header.startswith(BASIC_REALM):
+        realm = BASIC_REALM
+    elif http_auth_header.startswith(DIGEST_REALM):
+        realm = DIGEST_REALM
+
+    if realm is not None:
+        if realm == BASIC_REALM:
+            auth = deco(base64.standard_b64encode(enco('%s:%s' % (login, password))))
+            custom_headers = {'Authorization': 'Basic %s' % auth}
+        elif realm == DIGEST_REALM:
+            auth = get_digest_header(http_auth_header, login, password, '%sapi.php' % path)
+            custom_headers = {'Authorization': 'Digest %s' % auth}
+
+        if custom_headers:
+            sitecon = mwclient.Site(host=host, path=path, custom_headers=custom_headers)
+    else:
+        error_message = 'HTTP connection failed: Unknown realm.'
+        sublime.status_message(error_message)
+        raise Exception(error_message)
+    return sitecon
+
+
 def get_connect(password=''):
     """ Returns a mwclient connection to the active MediaWiki site. """
     DIGEST_REALM = 'Digest realm'
     BASIC_REALM = 'Basic realm'
-    site_name_active = get_setting('mediawiki_site_active')
+    site_active = get_setting('mediawiki_site_active')
     site_list = get_setting('mediawiki_site')
-    site_params = site_list[site_name_active]
+    site_params = site_list[site_active]
     site = site_params['host']
     path = site_params['path']
     username = site_params['username']
     domain = site_params['domain']
+    proxy_host = site_params.get('proxy_host', '')
     is_https = site_params.get('https', False)
     if is_https:
         sublime.status_message('Trying to get https connection to https://%s' % site)
     host = site if not is_https else ('https', site)
-    proxy_host = site_params.get('proxy_host', '')
     if proxy_host:
         # proxy_host format is host:port, if only host defined, 80 will be used
         host = proxy_host if not is_https else ('https', proxy_host)
@@ -298,17 +186,10 @@ def get_connect(password=''):
     inject_cookies = site_params.get('cookies')
 
     try:
-        # It would be nice to be able to pass in old cookies, but that is not part of the original design.
-        # we have:
-        # <Site>sitecon . <HTTPPool> connection [list of ((scheme, hostname), <HTTP(S)PersistentConnection> connection) tuples]
-        # <HTTP(S)PersistentConnection> connection._conn = <httplib.HTTP(S)Connection>
-        # connection.cookies is a dict[host] = <CookieJar> , either individual or shared pool (if pool is provided to connection init)
-        # Note: For cookies[host], host is hostname string e.g. "lab.wyss.harvard.edu"; not ('https', 'harvard.edu') tuple.
-        # CookieJar is a subclass of dict. I've changed it's __init__ so you can initialize it as a dict.
-        # connection.post(<host>, ...) finds the host in the connection pool,
+        # I have modified mwclient in order to be able to pass in custom cookies
         sitecon = mwclient.Site(host=host, path=path, inject_cookies=inject_cookies)
     except (mwclient.HTTPStatusError, errors.HTTPStatusError) as exc:
-        e = exc.args if PYTHONVER >= 3 else exc     # pylint: disable=W0621
+        e = exc.args if pythonver >= 3 else exc
         is_use_http_auth = site_params.get('use_http_auth', False)
         http_auth_login = site_params.get('http_auth_login', '')
         http_auth_password = site_params.get('http_auth_password', '')
@@ -344,7 +225,6 @@ def get_connect(password=''):
         print(msg)
         sublime.status_message(msg)
         raise exc
-
 
     # if login is not empty - auth required
     if username:
@@ -406,6 +286,26 @@ def get_page_text(site, title):
             return False, ''
 
 
+def save_mypages(title, storage_name='mediawiker_pagelist'):
+
+    title = title.replace('_', ' ')  # for wiki '_' and ' ' are equal in page name
+    pagelist_maxsize = get_setting('mediawiker_pagelist_maxsize')
+    site_active = get_setting('mediawiki_site_active')
+    mediawiker_pagelist = get_setting(storage_name, {})
+
+    my_pages = mediawiker_pagelist.setdefault(site_active, [])
+
+    if my_pages:
+        if title in my_pages:
+            # for sorting - remove *before* trimming size, not after.
+            my_pages.remove(title)
+        while len(my_pages) >= pagelist_maxsize:
+            my_pages.pop(0)
+
+    my_pages.append(title)
+    set_setting(storage_name, mediawiker_pagelist)
+
+
 ### HANDLING PAGE TITLES, Quoting and unquoting ###
 
 
@@ -426,7 +326,7 @@ def strquote(string_value, quote_plus=None, safe=None):
         quote_plus = get_setting("mediawiki_quote_plus", False)
     if safe is None:
         safe = get_setting("mediawiker_quote_safe", '' if quote_plus else '/')
-    if PYTHONVER >= 3:
+    if pythonver >= 3:
         quote = urllib.parse.quote_plus if quote_plus else urllib.parse.quote
         return quote(string_value, safe=safe)
     else:
@@ -438,7 +338,7 @@ def strunquote(string_value, quote_plus=None):
     """ Reverses the effect of strquote() """
     if quote_plus is None:
         quote_plus = get_setting("mediawiki_quote_plus", False)
-    if PYTHONVER >= 3:
+    if pythonver >= 3:
         unquote = urllib.parse.unquote_plus if quote_plus else urllib.parse.unquote
         return unquote(string_value)
     else:
@@ -450,10 +350,10 @@ def strunquote(string_value, quote_plus=None):
 
 def pagename_clear(pagename):
     """ Return clear pagename if page-url was set instead of.."""
-    site_name_active = get_setting('mediawiki_site_active')
+    site_active = get_setting('mediawiki_site_active')
     site_list = get_setting('mediawiki_site')
-    site = site_list[site_name_active]['host']
-    pagepath = site_list[site_name_active]['pagepath']
+    site = site_list[site_active]['host']
+    pagepath = site_list[site_active]['pagepath']
     try:
         pagename = strunquote(pagename)
     except UnicodeEncodeError:
@@ -517,17 +417,16 @@ def get_filename(title):
 
 def get_page_url(page_name=''):
     """ Returns URL of page with title of the active document, or <page_name> if given. """
-
-    site_name_active = get_setting('mediawiki_site_active')
+    site_active = get_setting('mediawiki_site_active')
     site_list = get_setting('mediawiki_site')
-    site = site_list[site_name_active]["host"]
+    site = site_list[site_active]["host"]
 
     is_https = False
-    if 'https' in site_list[site_name_active]:
-        is_https = site_list[site_name_active]["https"]
+    if 'https' in site_list[site_active]:
+        is_https = site_list[site_active]["https"]
 
     proto = 'https' if is_https else 'http'
-    pagepath = site_list[site_name_active]["pagepath"]
+    pagepath = site_list[site_active]["pagepath"]
     if not page_name:
         # For URLs, we need to quote spaces to '%20' rather than '+' and not replace '/' with '%2F'
         # Thus, force use of quote rather than quote_plus and use safe='/'.

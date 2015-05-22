@@ -48,6 +48,8 @@ import sublime_plugin
 if sys.version_info[0] >= 3:
     from . import mwutils as mw
     from .mwclient import errors
+    from .other_utils import adjust_figlet_comment, adjust_figlet_todo, get_figlet_text
+    from .other_utils import get_login_cookie, get_login_cookie_key_and_value
     try:
         from .lib.cookieshop.chrome_extract import get_chrome_cookies
     except ImportError as exc:
@@ -525,8 +527,8 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
 
         ## 3. Create big comment text: ##
         if self.bigcomment:
-            exp_figlet_comment = mw.get_figlet_text(self.bigcomment) # Makes the big figlet text
-            self.exp_buffer_text += mw.adjust_figlet_comment(exp_figlet_comment, foldername or self.bigcomment) # Adjusts the figlet to produce a comment
+            exp_figlet_comment = get_figlet_text(self.bigcomment) # Makes the big figlet text
+            self.exp_buffer_text += adjust_figlet_comment(exp_figlet_comment, foldername or self.bigcomment) # Adjusts the figlet to produce a comment
 
         ## 4. Generate template : ##
         if template:
@@ -610,7 +612,7 @@ class MediawikerSetLoginCookie(sublime_plugin.WindowCommand):
     """
     def run(self, new_cookie=None):
         if new_cookie is None:
-            new_cookie = mw.get_login_cookie(default='')
+            new_cookie = get_login_cookie(default='')
         # show_input_panel(caption, initial_text, on_done, on_change, on_cancel)
         self.window.show_input_panel('Set login cookie:', new_cookie, self.on_done, None, None)
     def on_done(self, new_cookie):
@@ -631,7 +633,7 @@ class MediawikerExtractChromeLoginCookie(sublime_plugin.WindowCommand):
     the updated cookie before it is updated in site_params.
     """
     def run(self, user_confirm=True):
-        cookie_key, current_cookie = mw.get_login_cookie_key_and_value()
+        cookie_key, current_cookie = get_login_cookie_key_and_value()
         msg = None
         if cookie_key is None:
             msg = "No login cookie defined in site params, aborting!"
@@ -815,26 +817,17 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
             # insert text
             self.view.erase(edit, sublime.Region(0, self.view.size()))
             if mw.get_setting('mediawiker_title_to_filename', True):
-                # If mediawiker_title_to_filename is specified, the title is cast to a
-                # "filesystem friendly" alternative by quoting. When posting, this is converted
-                # back to the original title.
+                # If mediawiker_title_to_filename is specified, cast the title to a valid filename by quoting.
+                # This is converted back to the original title upon posting.
                 filename = mw.get_filename(title)
                 print("mw.get_filename('%s') returned '%s' -- using this to set the name." % (title, filename))
-                # I like to have a default directory where I store my mediawiki pages.
-                # I use the settings key 'mediawiker_file_rootdir' to specify this directory,
-                # which is prefixed to the file, if specified:
-                # (should possibly be specified on a per-wiki basis.)
-                # I then use the view's default_dir setting to change to this dir:
-                # There are also some considerations for pages with '/' in the title,
-                # this can either be quoted or we can place the file in a sub-directory.
                 if mw.get_setting('mediawiker_file_rootdir', None):
-                    # If mediawiker_file_rootdir is set, then filename is a path with rootdir
-                    # Update the view's working dir to reflect this:
+                    # The setting 'mediawiker_file_rootdir' is used to specify a default directory for
+                    # mediawiker edits. Update the view's working dir to reflect this:
                     self.view.settings().set('default_dir', os.path.dirname(filename))
                     self.view.set_name(os.path.basename(filename))
                 else:
                     self.view.set_name(filename)
-            #self.view._wikipage_title = title # Save this.
             self.view.run_command('mediawiker_insert_text', {'position': 0, 'text': text})
         sublime.status_message('Page %s was opened successfully into view "%s".' % (title, self.view.name()))
 
@@ -875,7 +868,7 @@ class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
                 mw.save_mypages(self.title)
             else:
                 sublime.status_message('You have not rights to edit this page')
-        except (mw.mwclient.EditError, errors.EditError) as e:
+        except mw.mwclient.EditError as e:
             sublime.status_message('Can\'t publish page %s (%s)' % (self.title, e))
 
 
@@ -1865,7 +1858,7 @@ class MediawikerInsertBigTextCommand(sublime_plugin.TextCommand):
         print("Setting self.text to: %s" % (text, ))
         self.text = text
         if self.text:
-            bigtext = mw.get_figlet_text(self.text) # Remove last newline.
+            bigtext = get_figlet_text(self.text) # Remove last newline.
             full = self.adjustText(bigtext)
             self.printText(full)
         else:
@@ -1878,7 +1871,7 @@ class MediawikerInsertBigTodoCommand(MediawikerInsertBigTextCommand):
     """
     def adjustText(self, bigtext):
         """ Can be over-written by subclasses to modify the big-text. """
-        return mw.adjust_figlet_todo(bigtext, self.text)
+        return adjust_figlet_todo(bigtext, self.text)
 
 class MediawikerInsertBigCommentCommand(MediawikerInsertBigTextCommand):
     """
@@ -1887,7 +1880,7 @@ class MediawikerInsertBigCommentCommand(MediawikerInsertBigTextCommand):
     """
     def adjustText(self, bigtext):
         """ Can be over-written by subclasses to modify the big-text. """
-        return mw.adjust_figlet_comment(bigtext, self.text)
+        return adjust_figlet_comment(bigtext, self.text)
 
 
 
@@ -1911,7 +1904,9 @@ class MediawikerLoad(sublime_plugin.EventListener):
         of F5 to reopen page:
             "keys": ["f5"], "command": "mediawiker_reopen_page", "context": [{"key": "setting.mediawiker_is_here", "operand": true}]
         """
-        if view.settings().get('syntax') is not None and view.settings().get('syntax').endswith('Mediawiker/Mediawiki.tmLanguage'):
+        current_syntax = view.settings().get('syntax')
+        # TODO: move method to check mediawiker view to mwutils
+        if current_syntax is not None and current_syntax.endswith('Mediawiker/Mediawiki.tmLanguage'):
             # Mediawiki mode
             view.settings().set('mediawiker_is_here', True)
             view.settings().set('mediawiker_wiki_instead_editor', mw.get_setting('mediawiker_wiki_instead_editor'))
