@@ -159,10 +159,6 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
         """ Entry point, invoked with action keyword and optionally a pre-defined title. """
         self.action = action
         self.action_args = args
-        actions_validate = ['mediawiker_publish_page', 'mediawiker_add_category',
-                            'mediawiker_category_list', 'mediawiker_search_string_list',
-                            'mediawiker_add_image', 'mediawiker_add_template',
-                            'mediawiker_upload']
 
         if self.action == 'mediawiker_show_page':
             if mw.get_setting('mediawiker_newtab_ongetpage'):

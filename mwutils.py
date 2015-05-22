@@ -1,37 +1,34 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # pylint: disable=invalid-name,line-too-long
-
 """
-
 Utility module for Mediawikier package.
 
 To import from within Sublime:
 >>> from Mediawiker import mwutils as mw
-
 """
+
 from __future__ import print_function
 import sys
 import os
+import re
 import urllib
 import base64
 from hashlib import md5
 import uuid
-import re
 
 import sublime
 
-PYTHONVER = sys.version_info[0]
-
+pythonver = sys.version_info[0]
 # Load local modules:
-if PYTHONVER >= 3:
+if pythonver >= 3:
     from . import mwclient
     from .mwclient import errors
     from .lib.cache_decorator import cached_property
 else:
-    from lib.cache_decorator import cached_property
     import mwclient
     from mwclient import errors
+    from lib.cache_decorator import cached_property
 
 
 ## Set up logging:
@@ -187,30 +184,6 @@ def set_login_cookie(value, cookie_key='open_id_session_id', site_name=None):
     sublime.save_settings('Mediawiker.sublime-settings')
 
 
-def save_mypages(title, storage_name='mediawiker_pagelist'):
-
-    title = title.replace('_', ' ')  # for wiki '_' and ' ' are equal in page name
-    pagelist_maxsize = get_setting('mediawiker_pagelist_maxsize')
-    site_name_active = get_view_site()
-    mediawiker_pagelist = get_setting(storage_name, {})
-
-    # if site_name_active not in mediawiker_pagelist:
-    #     mediawiker_pagelist[site_name_active] = []
-
-    # my_pages = mediawiker_pagelist[site_name_active]
-    my_pages = mediawiker_pagelist.setdefault(site_name_active, [])
-
-    if my_pages:
-        if title in my_pages:
-            # for sorting - remove *before* trimming size, not after.
-            my_pages.remove(title)
-        while len(my_pages) >= pagelist_maxsize:
-            my_pages.pop(0)
-
-    my_pages.append(title)
-    set_setting(storage_name, mediawiker_pagelist)
-
-
 
 
 ### CONNECTION HANDLING ###
@@ -225,13 +198,14 @@ def get_view_site():
 
 def enco(value):
     ''' for md5 hashing string must be encoded '''
-    if PYTHONVER >= 3:
+    if pythonver >= 3:
         return value.encode('utf-8')
     return value
 
+
 def deco(value):
     ''' for py3 decode from bytes '''
-    if PYTHONVER >= 3:
+    if pythonver >= 3:
         return value.decode('utf-8')
     return value
 
@@ -280,78 +254,6 @@ def get_digest_header(header, username, password, path):
     return auth_tpl % (username, realm, nonce, digest_uri, response, qop, nc, cnonce)
 
 
-def get_connect(password=''):
-    """ Returns a mwclient connection to the active MediaWiki site. """
-    site_name_active = get_view_site()
-    site_list = get_setting('mediawiki_site')
-    site_params = site_list[site_name_active]
-    site = site_params['host']
-    path = site_params['path']
-    username = site_params['username']
-    domain = site_params['domain']
-    is_https = site_params.get('https', False)
-    if is_https:
-        sublime.status_message('Trying to get https connection to https://%s' % site)
-    host = site if not is_https else ('https', site)
-    proxy_host = site_params.get('proxy_host', '')
-    if proxy_host:
-        # proxy_host format is host:port, if only host defined, 80 will be used
-        host = proxy_host if not is_https else ('https', proxy_host)
-        proto = 'https' if is_https else 'http'
-        path = '%s://%s%s' % (proto, site, path)
-        sublime.message_dialog('Connection with proxy: %s %s' % (host, path))
-    # If the mediawiki instance has OpenID login (e.g. google), it is easiest to
-    # login by injecting the open_id_session_id cookie into the session's cookie jar:
-    inject_cookies = site_params.get('cookies')
-
-    try:
-        # It would be nice to be able to pass in old cookies, but that is not part of the original design.
-        # we have:
-        # <Site>sitecon . <HTTPPool> connection [list of ((scheme, hostname), <HTTP(S)PersistentConnection> connection) tuples]
-        # <HTTP(S)PersistentConnection> connection._conn = <httplib.HTTP(S)Connection>
-        # connection.cookies is a dict[host] = <CookieJar> , either individual or shared pool (if pool is provided to connection init)
-        # Note: For cookies[host], host is hostname string e.g. "lab.wyss.harvard.edu"; not ('https', 'harvard.edu') tuple.
-        # CookieJar is a subclass of dict. I've changed it's __init__ so you can initialize it as a dict.
-        # connection.post(<host>, ...) finds the host in the connection pool,
-        sitecon = mwclient.Site(host=host, path=path, inject_cookies=inject_cookies)
-    except (mwclient.HTTPStatusError, errors.HTTPStatusError) as exc:
-        e = exc.args if PYTHONVER >= 3 else exc     # pylint: disable=W0621
-        is_use_http_auth = site_params.get('use_http_auth', False)
-        http_auth_login = site_params.get('http_auth_login', '')
-        http_auth_password = site_params.get('http_auth_password', '')
-        if e[0] == 401 and is_use_http_auth and http_auth_login:
-            http_auth_header = e[1].getheader('www-authenticate')
-            sitecon = http_auth(http_auth_header, host, path, http_auth_login, http_auth_password)
-        else:
-            sublime.status_message('HTTP connection failed: %s' % e[1])
-            raise Exception('HTTP connection failed.')
-    except (mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
-        # if redirect to '/login.php' page:
-        msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired. (HTTPRedirectError: %s)' % exc
-        print(msg)
-        sublime.status_message(msg)
-        raise exc
-
-
-    # if login is not empty - auth required
-    if username:
-        try:
-            if sitecon is not None:
-                sitecon.login(username=username, password=password, domain=domain)
-                sublime.status_message('Logon successfully.')
-            else:
-                sublime.status_message('Login failed: connection unavailable.')
-        except (errors.LoginError, mwclient.LoginError) as e:
-            sublime.status_message('Login failed: %s' % e[1]['result'])
-            return
-    elif inject_cookies:
-        sublime.status_message('Connected using cookies: %s' % ", ".join(inject_cookies.keys()))
-        print('Connected using cookies: %s' % ", ".join(inject_cookies.keys()))
-    else:
-        sublime.status_message('Connection without authorization')
-    return sitecon
-
-
 def http_auth(http_auth_header, host, path, login, password):
     sitecon = None
     DIGEST_REALM = 'Digest realm'
@@ -379,6 +281,79 @@ def http_auth(http_auth_header, host, path, login, password):
         error_message = 'HTTP connection failed: Unknown realm.'
         sublime.status_message(error_message)
         raise Exception(error_message)
+    return sitecon
+
+
+def get_connect(password=''):
+    """ Returns a mwclient connection to the active MediaWiki site. """
+    site_active = get_view_site()
+    site_list = get_setting('mediawiki_site')
+    site_params = site_list[site_active]
+    site = site_params['host']
+    path = site_params['path']
+    username = site_params['username']
+    if password is None:
+        password = site_params['password']
+    domain = site_params['domain']
+    proxy_host = site_params.get('proxy_host', '')
+    is_https = site_params.get('https', False)
+    if is_https:
+        sublime.status_message('Trying to get https connection to https://%s' % site)
+    host = site if not is_https else ('https', site)
+    if proxy_host:
+        # proxy_host format is host:port, if only host defined, 80 will be used
+        host = proxy_host if not is_https else ('https', proxy_host)
+        proto = 'https' if is_https else 'http'
+        path = '%s://%s%s' % (proto, site, path)
+        sublime.message_dialog('Connection with proxy: %s %s' % (host, path))
+    # If the mediawiki instance has OpenID login (e.g. google), it is easiest to
+    # login by injecting the open_id_session_id cookie into the session's cookie jar:
+    inject_cookies = site_params.get('cookies')
+
+    try:
+        # It would be nice to be able to pass in old cookies, but that is not part of the original design.
+        # we have:
+        # <Site>sitecon . <HTTPPool> connection [list of ((scheme, hostname), <HTTP(S)PersistentConnection> connection) tuples]
+        # <HTTP(S)PersistentConnection> connection._conn = <httplib.HTTP(S)Connection>
+        # connection.cookies is a dict[host] = <CookieJar> , either individual or shared pool (if pool is provided to connection init)
+        # Note: For cookies[host], host is hostname string e.g. "lab.wyss.harvard.edu"; not ('https', 'harvard.edu') tuple.
+        # CookieJar is a subclass of dict. I've changed it's __init__ so you can initialize it as a dict.
+        # connection.post(<host>, ...) finds the host in the connection pool,
+        sitecon = mwclient.Site(host=host, path=path, inject_cookies=inject_cookies)
+    except (mwclient.HTTPStatusError, errors.HTTPStatusError) as exc:
+        e = exc.args if pythonver >= 3 else exc
+        is_use_http_auth = site_params.get('use_http_auth', False)
+        http_auth_login = site_params.get('http_auth_login', '')
+        http_auth_password = site_params.get('http_auth_password', '')
+        if e[0] == 401 and is_use_http_auth and http_auth_login:
+            http_auth_header = e[1].getheader('www-authenticate')
+            sitecon = http_auth(http_auth_header, host, path, http_auth_login, http_auth_password)
+        else:
+            sublime.status_message('HTTP connection failed: %s' % e[1])
+            raise Exception('HTTP connection failed.')
+    except (mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
+        # if redirect to '/login.php' page:
+        msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired. (HTTPRedirectError: %s)' % exc
+        print(msg)
+        sublime.status_message(msg)
+        raise exc
+
+    # if login is not empty - auth required
+    if username:
+        try:
+            if sitecon is not None:
+                sitecon.login(username=username, password=password, domain=domain)
+                sublime.status_message('Logon successfully.')
+            else:
+                sublime.status_message('Login failed: connection unavailable.')
+        except (errors.LoginError, mwclient.LoginError) as e:
+            sublime.status_message('Login failed: %s' % e[1]['result'])
+            return
+    elif inject_cookies:
+        sublime.status_message('Connected using cookies: %s' % ", ".join(inject_cookies.keys()))
+        print('Connected using cookies: %s' % ", ".join(inject_cookies.keys()))
+    else:
+        sublime.status_message('Connection without authorization')
     return sitecon
 
 
@@ -412,6 +387,8 @@ class SiteconnMgr():
         del self.Siteconn
 
 
+# wiki related functions..
+
 
 def get_page_text(site, title):
     """ Get the content of a page by title. """
@@ -424,6 +401,26 @@ def get_page_text(site, title):
             return False, page.edit()
         else:
             return False, ''
+
+
+def save_mypages(title, storage_name='mediawiker_pagelist'):
+
+    title = title.replace('_', ' ')  # for wiki '_' and ' ' are equal in page name
+    pagelist_maxsize = get_setting('mediawiker_pagelist_maxsize')
+    site_active = get_view_site()
+    mediawiker_pagelist = get_setting(storage_name, {})
+
+    my_pages = mediawiker_pagelist.setdefault(site_active, [])
+
+    if my_pages:
+        if title in my_pages:
+            # for sorting - remove *before* trimming size, not after.
+            my_pages.remove(title)
+        while len(my_pages) >= pagelist_maxsize:
+            my_pages.pop(0)
+
+    my_pages.append(title)
+    set_setting(storage_name, mediawiker_pagelist)
 
 
 ### HANDLING PAGE TITLES, Quoting and unquoting ###
@@ -446,7 +443,7 @@ def strquote(string_value, quote_plus=None, safe=None):
         quote_plus = get_setting("mediawiki_quote_plus", False)
     if safe is None:
         safe = get_setting("mediawiker_quote_safe", '' if quote_plus else '/')
-    if PYTHONVER >= 3:
+    if pythonver >= 3:
         quote = urllib.parse.quote_plus if quote_plus else urllib.parse.quote
         return quote(string_value, safe=safe)
     else:
@@ -458,7 +455,7 @@ def strunquote(string_value, quote_plus=None):
     """ Reverses the effect of strquote() """
     if quote_plus is None:
         quote_plus = get_setting("mediawiki_quote_plus", False)
-    if PYTHONVER >= 3:
+    if pythonver >= 3:
         unquote = urllib.parse.unquote_plus if quote_plus else urllib.parse.unquote
         return unquote(string_value)
     else:
@@ -535,29 +532,6 @@ def get_filename(title):
     # If you use subdirs, then you should also adjust get_title() so that is can accomodate:
 
 
-def get_page_url(page_name=''):
-    """ Returns URL of page with title of the active document, or <page_name> if given. """
-
-    site_name_active = get_view_site()
-    site_list = get_setting('mediawiki_site')
-    site = site_list[site_name_active]["host"]
-
-    is_https = False
-    if 'https' in site_list[site_name_active]:
-        is_https = site_list[site_name_active]["https"]
-
-    proto = 'https' if is_https else 'http'
-    pagepath = site_list[site_name_active]["pagepath"]
-    if not page_name:
-        # For URLs, we need to quote spaces to '%20' rather than '+' and not replace '/' with '%2F'
-        # Thus, force use of quote rather than quote_plus and use safe='/'.
-        page_name = strquote(get_title(), quote_plus=False, safe='/')
-    if page_name:
-        return '%s://%s%s%s' % (proto, site, pagepath, page_name)
-    else:
-        return ''
-
-
 def get_hlevel(header_string, substring):
     return int(header_string.count(substring) / 2)
 
@@ -568,6 +542,28 @@ def get_category(category_full_name):
         return category_full_name.split(':')
     else:
         return 'Category', category_full_name
+
+
+def get_page_url(page_name=''):
+    """ Returns URL of page with title of the active document, or <page_name> if given. """
+    site_active = get_view_site()
+    site_list = get_setting('mediawiki_site')
+    site = site_list[site_active]["host"]
+
+    is_https = False
+    if 'https' in site_list[site_active]:
+        is_https = site_list[site_active]["https"]
+
+    proto = 'https' if is_https else 'http'
+    pagepath = site_list[site_active]["pagepath"]
+    if not page_name:
+        # For URLs, we need to quote spaces to '%20' rather than '+' and not replace '/' with '%2F'
+        # Thus, force use of quote rather than quote_plus and use safe='/'.
+        page_name = strquote(get_title(), quote_plus=False, safe='/')
+    if page_name:
+        return '%s://%s%s%s' % (proto, site, pagepath, page_name)
+    else:
+        return ''
 
 
 
@@ -664,7 +660,6 @@ def substitute_template_params(template, params, defaultvalue='', keep_unmatched
         def repl(match):
             return params.get(match.group(1), defaultvalue)
     return re.sub(pattern, repl, template)
-
 
 
 
