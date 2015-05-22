@@ -2,14 +2,6 @@
 # -*- coding: utf-8 -*-
 
 # pylint: disable=W0142,C0302,C0301,C0103
-# W0142="* or ** magic"
-# C0302="Too many lines in module"
-## Too many branches, variables and lines in function:
-# pylint: disable=R0914,R0912,R0915
-## ToDos, missing docstrings:
-# pylint: disable=W0511,C0111
-# pylintx: disable=W0611   ## Unused imports,
-## Unable to import, no __init__, no member, too few lines, method-could-be-function, unused argument, attribute defined outside __init__
 # pylint: disable=F0401,E1101,W0232,R0903,R0201,W0613,W0201,R0913
 
 """
@@ -33,11 +25,6 @@ Mediawikier settings:
     "mediawiker_files_extension": ["mediawiki", "wiki", "wikipedia", ""],   # File extensions recognized and allowed.
 
     "mediawiker_mark_as_minor": false,      #
-
-References:
-# https://github.com/wbond/sublime_package_control/wiki/Sublime-Text-3-Compatible-Packages
-# http://www.sublimetext.com/docs/2/api_reference.html
-# http://www.sublimetext.com/docs/3/api_reference.html
 
 """
 
@@ -98,31 +85,10 @@ sitemgr = mw.SiteconnMgr()
 
 
 class MediawikerPageCommand(sublime_plugin.WindowCommand):
-    """
-    Prepare all actions with the wiki.
-    The general pipeline is:
-    # MediawikerPageCommand.run()
-    ##  reads settings and prepares a few things
-    ##  exits by calling MediawikerPageCommand.on_done()
-    # MediawikerPageCommand.on_done()
-    ##  calls MediawikerValidateConnectionParamsCommand.run(title, action) through window.run_command
-    # MediawikerValidateConnectionParamsCommand.run(title, action)
-    ##  Retrieves password if required.
-    ##  Invoked call_page, which invokes run_command(action, kwargs-with-title-and-password)
+    '''prepare all actions with the wiki.'''
 
-    # In summary:
-            .run()       -> .on_done()
-         MediawikerPageCommand -> MediawikerValidateConnectionParamsCommand -> Mediawiker(ShowPage/PublishPage/AddCategory/etc)Command
-
-    When describing a command as string, it has format mediawiker_publish_page,
-    which refers to the class MediawikerPublishPageCommand.
-
-    The title parameter must be wikipage title, it cannot be a filename (quoted).
-    """
-
-    action = ''
-    is_inputfixed = False
     run_in_new_window = False
+    title = None
 
     def run(self, action, title='', site_active=None, args=None):
         """ Entry point, invoked with action keyword and optionally a pre-defined title. """
@@ -300,7 +266,7 @@ class MediawikerReopenPageCommand(sublime_plugin.WindowCommand):
 
 class MediawikerPostPageCommand(sublime_plugin.WindowCommand):
     """
-    Invoke MediawikerPublishPageCommand (text command) via MediawikerPage->ValidateParams chain.
+    Invoke MediawikerPublishPageCommand (TextCommand) via MediawikerPageCommand.
     Command string: mediawiker_post_page
     """
     def run(self):
@@ -310,7 +276,7 @@ class MediawikerPostPageCommand(sublime_plugin.WindowCommand):
 
 class MediawikerSetCategoryCommand(sublime_plugin.WindowCommand):
     """
-    Invoke MediawikerAddCategoryCommand (text command) via MediawikerPage->ValidateParams chain.
+    Invoke MediawikerAddCategoryCommand (text command) via MediawikerPageCommand.
     Command string: mediawiker_set_category
     """
     def run(self):
@@ -320,7 +286,7 @@ class MediawikerSetCategoryCommand(sublime_plugin.WindowCommand):
 
 class MediawikerInsertImageCommand(sublime_plugin.WindowCommand):
     """
-    Invoke MediawikerAddImageCommand (text command) via MediawikerPage->ValidateParams chain.
+    Invoke MediawikerAddImageCommand (text command) via MediawikerPageCommand.
     Command string: mediawiker_insert_image
     """
     def run(self):
@@ -330,7 +296,7 @@ class MediawikerInsertImageCommand(sublime_plugin.WindowCommand):
 
 class MediawikerInsertTemplateCommand(sublime_plugin.WindowCommand):
     """
-    Invoke MediawikerAddTemplateCommand (text command) via MediawikerPage->ValidateParams chain.
+    Invoke MediawikerAddTemplateCommand (text command) via MediawikerPageCommand.
     Command string: mediawiker_insert_template
     """
     def run(self):
@@ -352,7 +318,7 @@ class MediawikerFileUploadCommand(sublime_plugin.WindowCommand):
 
 class MediawikerCategoryTreeCommand(sublime_plugin.WindowCommand):
     """
-    Invoke MediawikerCategoryListCommand (text command) via MediawikerPage->ValidateParams chain.
+    Invoke MediawikerCategoryListCommand (text command) via MediawikerPageCommand.
     Command string: mediawiker_category_tree
     """
     def run(self):
@@ -362,7 +328,7 @@ class MediawikerCategoryTreeCommand(sublime_plugin.WindowCommand):
 
 class MediawikerSearchStringCommand(sublime_plugin.WindowCommand):
     """
-    Invoke MediawikerSearchStringListCommand (text command) via MediawikerPage->ValidateParams chain.
+    Invoke MediawikerSearchStringListCommand (text command) via MediawikerPageCommand.
     Command string: mediawiker_search_string
     """
     def run(self):
@@ -397,9 +363,7 @@ class MediawikerPageListCommand(sublime_plugin.WindowCommand):
 
 
 class MediawikerEditPanelCommand(sublime_plugin.WindowCommand):
-    """
-    Displays a quick panel with available snippets and inserts the selected.
-    """
+    """ Displays a quick panel with available snippets and inserts the selected. """
     options = []
     SNIPPET_CHAR = u'\u24C8'
 
@@ -652,10 +616,7 @@ class MediawikerFavoritesAddCommand(sublime_plugin.WindowCommand):
 
 
 class MediawikerFavoritesOpenCommand(sublime_plugin.WindowCommand):
-    """
-    Open page from the favorites list.
-    Command string: mediawiker_favorites_open (WindowCommand)
-    """
+    """ Open page from the favorites list. Command string: mediawiker_favorites_open (WindowCommand) """
     def run(self):
         self.window.run_command("mediawiker_page_list", {"storage_name": 'mediawiker_favorites'})
 
@@ -913,21 +874,21 @@ class MediawikerPublishPageCommand(sublime_plugin.TextCommand):
             return
 
     def on_done(self, summary):
+        summary = '%s%s' % (summary, mw.get_setting('mediawiker_summary_postfix', ' (by SublimeText.Mediawiker)'))
+        mark_as_minor = mw.get_setting('mediawiker_mark_as_minor')
         try:
-            summary = '%s%s' % (summary, mw.get_setting('mediawiker_summary_postfix', ' (by SublimeText.Mediawiker)'))
-            mark_as_minor = mw.get_setting('mediawiker_mark_as_minor')
             if self.page.can('edit'):
                 # invert minor settings command '!'
                 if summary[0] == '!':
                     mark_as_minor = not mark_as_minor
                     summary = summary[1:]
                 self.page.save(self.current_text, summary=summary.strip(), minor=mark_as_minor)
+                sublime.status_message('Wiki page %s was successfully published to wiki.' % (self.title))
+                mw.save_mypages(self.title)
             else:
                 sublime.status_message('You have not rights to edit this page')
         except errors.EditError as e:
             sublime.status_message('Can\'t publish page %s (%s)' % (self.title, e))
-        sublime.status_message('Wiki page %s was successfully published to wiki.' % (self.title))
-        mw.save_mypages(self.title)
 
 
 class MediawikerShowTocCommand(sublime_plugin.TextCommand):
@@ -1090,8 +1051,8 @@ class MediawikerEnumerateTocCommand(sublime_plugin.TextCommand):
 
 class MediawikerSetActiveSiteCommand(sublime_plugin.WindowCommand):
     site_keys = []
-    site_on = '>'
-    site_off = ' ' * 3
+    site_on = '> '
+    site_off = ' ' * 4
     site_active = ''
 
     def run(self):
@@ -1103,7 +1064,7 @@ class MediawikerSetActiveSiteCommand(sublime_plugin.WindowCommand):
 
     def is_checked(self, site_key):
         checked = self.site_on if site_key == self.site_active else self.site_off
-        return '%s %s' % (checked, site_key)
+        return '%s%s' % (checked, site_key)
 
     def on_done(self, index):
         # not escaped and not active
@@ -1167,10 +1128,7 @@ class MediawikerAddCategoryCommand(sublime_plugin.TextCommand):
 
 
 class MediawikerCsvTableCommand(sublime_plugin.TextCommand):
-    """
-    selected text, csv data to wiki table.
-    Command string: mediawiker_csv_table
-    """
+    ''' selected text, csv data to wiki table. Command string: mediawiker_csv_table '''
 
     delimiter = '|'
 
@@ -1587,7 +1545,6 @@ class MediawikerAddTemplateCommand(sublime_plugin.TextCommand):
             self.view.run_command('mediawiker_insert_text', {'position': index_of_cursor, 'text': template_text})
 
 
-
 class MediawikerUploadCommand(sublime_plugin.TextCommand):
     """
     Command string: mediawiker_upload
@@ -1974,14 +1931,8 @@ class MediawikerLoad(sublime_plugin.EventListener):
 
 class MediawikerCompletionsEvent(sublime_plugin.EventListener):
 
-    def check_tab(self, view):
-        mw_here = view.settings().get('mediawiker_is_here', False)
-        if mw_here:
-            return True
-        return False
-
     def on_query_completions(self, view, prefix, locations):
-        if self.check_tab(view):
+        if view.settings().get('mediawiker_is_here', False):
             view = sublime.active_window().active_view()
 
             # internal links completions
