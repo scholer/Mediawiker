@@ -61,21 +61,33 @@ else:
     import mwutils as mw
     FileExistsError = WindowsError  # pylint: disable=W0622
 
-
-# Initialize logging system (only kicks in if not initialized already...)
-mw.init_logging()
-
-
 # Define constants:
 CATEGORY_NAMESPACE = 14  # category namespace number
 IMAGE_NAMESPACE = 6  # image namespace number
 TEMPLATE_NAMESPACE = 10  # template namespace number
 
 
-class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
+# Initialize logging system (only kicks in if not initialized already...)
+mw.init_logging()
 
 # Module-level site manager:
 sitemgr = mw.SiteconnMgr()
+
+
+
+class MediawikerInsertTextCommand(sublime_plugin.TextCommand):
+
+     def run(self, edit, position, text):
+         self.view.insert(edit, position, text)
+
+
+class MediawikerReplaceTextCommand(sublime_plugin.TextCommand):
+
+    def run(self, edit, text):
+        self.view.replace(edit, self.view.sel()[0], text)
+
+
+
 
 ##### WINDOW COMMANDS #######
 
@@ -98,10 +110,6 @@ class MediawikerTestCmdCommand(sublime_plugin.WindowCommand):
             print("Custom test...")
 
 
-class MediawikerReplaceTextCommand(sublime_plugin.TextCommand):
-
-    def run(self, edit, text):
-        self.view.replace(edit, self.view.sel()[0], text)
 class MediawikerPageCommand(sublime_plugin.WindowCommand):
     """
     Prepare all actions with the wiki.
@@ -123,9 +131,6 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
 
     The title parameter must be wikipage title, it cannot be a filename (quoted).
     """
-
-class MediawikerPageCommand(sublime_plugin.WindowCommand):
-    '''prepare all actions with wiki'''
 
     run_in_new_window = False
     title = None
