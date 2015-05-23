@@ -122,9 +122,11 @@ def get_digest_header(header, username, password, path):
     else:
         response = md5(enco('%s:%s:%s' % (ha1, nonce, ha2))).hexdigest()
 
-    # auth = 'username="%s", realm="%s", nonce="%s", uri="%s", response="%s", opaque="%s", qop="%s", nc=%s, cnonce="%s"' % (username, realm, nonce, digest_uri, response, opaque, qop, nc, cnonce)
-    auth = 'username="%s", realm="%s", nonce="%s", uri="%s", response="%s", qop="%s", nc=%s, cnonce="%s"' % (username, realm, nonce, digest_uri, response, qop, nc, cnonce)
-    return auth
+    # auth = 'username="%s", realm="%s", nonce="%s", uri="%s", response="%s", opaque="%s", qop="%s", nc=%s, cnonce="%s"' %
+    # (username, realm, nonce, digest_uri, response, opaque, qop, nc, cnonce)
+    auth_tpl = 'username="%s", realm="%s", nonce="%s", uri="%s", response="%s", qop="%s", nc=%s, cnonce="%s"'
+
+    return auth_tpl % (username, realm, nonce, digest_uri, response, qop, nc, cnonce)
 
 
 def http_auth(http_auth_header, host, path, login, password):
@@ -159,8 +161,6 @@ def http_auth(http_auth_header, host, path, login, password):
 
 def get_connect(password=None):
     """ Returns a mwclient connection to the active MediaWiki site. """
-    DIGEST_REALM = 'Digest realm'
-    BASIC_REALM = 'Basic realm'
     site_active = get_view_site()
     site_list = get_setting('mediawiki_site')
     site_params = site_list[site_active]
@@ -195,27 +195,7 @@ def get_connect(password=None):
         http_auth_password = site_params.get('http_auth_password', '')
         if e[0] == 401 and is_use_http_auth and http_auth_login:
             http_auth_header = e[1].getheader('www-authenticate')
-            custom_headers = {}
-            realm = None
-            if http_auth_header.startswith(BASIC_REALM):
-                realm = BASIC_REALM
-            elif http_auth_header.startswith(DIGEST_REALM):
-                realm = DIGEST_REALM
-
-            if realm is not None:
-                if realm == BASIC_REALM:
-                    auth = deco(base64.standard_b64encode(enco('%s:%s' % (http_auth_login, http_auth_password))))
-                    custom_headers = {'Authorization': 'Basic %s' % auth}
-                elif realm == DIGEST_REALM:
-                    auth = get_digest_header(http_auth_header, http_auth_login, http_auth_password, '%sapi.php' % path)
-                    custom_headers = {'Authorization': 'Digest %s' % auth}
-
-                if custom_headers:
-                    sitecon = mwclient.Site(host=host, path=path, custom_headers=custom_headers)
-            else:
-                error_message = 'HTTP connection failed: Unknown realm.'
-                sublime.status_message(error_message)
-                raise Exception(error_message)
+            sitecon = http_auth(http_auth_header, host, path, http_auth_login, http_auth_password)
         else:
             sublime.status_message('HTTP connection failed: %s' % e[1])
             raise Exception('HTTP connection failed.')
@@ -558,6 +538,67 @@ class InputPanel:
         pass
 
 
+class InputPanelPageTitle(InputPanel):
+
+    def get_title(self, title):
+        if not title:
+            title_pre = ''
+            # use clipboard or selected text for page name
+            if bool(get_setting('mediawiker_clipboard_as_defaultpagename')):
+                title_pre = sublime.get_clipboard().strip()
+            if not title_pre:
+                selection = self.window.active_view().sel()
+                title_pre = self.window.active_view().substr(selection[0]).strip()
+            self.show_input('Wiki page name:', title_pre)
+        else:
+            self.on_done(title)
+
+    def on_change(self, title):
+        if title:
+            pagename_cleared = pagename_clear(title)
+            if title != pagename_cleared:
+                self.window.show_input_panel('Wiki page name:', pagename_cleared, self.on_done, self.on_change, None)
+
+
+class InputPanelPassword(InputPanel):
+
+    ph = None
+    is_hide_password = False
+
+    def get_password(self):
+        # site_active = mw.get_setting('mediawiki_site_active')
+        site_active = get_view_site()
+        site_list = get_setting('mediawiki_site')
+        password = site_list[site_active]["password"]
+        if site_list[site_active]["username"]:
+            # auth required if username exists in settings
+            if not password:
+                self.is_hide_password = get_setting('mediawiker_password_input_hide')
+                if self.is_hide_password:
+                    self.ph = PasswordHider()
+                # need to ask for password
+                # window.show_input_panel('Password:', '', self.on_done, self.on_change, None)
+                self.show_input('Password:', '')
+            else:
+                # return password
+                self.on_done(password)
+        else:
+            # auth is not required
+            self.on_done('')
+
+    def on_change(self, str_val):
+        if str_val and self.is_hide_password and self.ph:
+            password = self.ph.hide(str_val)
+            if password != str_val:
+                # self.window.show_input_panel('Password:', password, self.on_done, self.on_change, None)
+                self.show_input('Password:', password)
+
+    def on_done(self, password):
+        if password and self.is_hide_password and self.ph:
+            password = self.ph.done()
+        self.command_run(password)  # defined in executor
+
+
 class PasswordHider():
 
     password = ''
@@ -574,4 +615,9 @@ class PasswordHider():
         return self.PASSWORD_CHAR * len(self.password)
 
     def done(self):
-        return self.password
+        try:
+            return self.password
+        except:
+            pass
+        finally:
+            self.password = ''

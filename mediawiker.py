@@ -82,141 +82,44 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
         self.action = action
         self.action_args = args
         self.site_active = site_active
-        actions_validate = ['mediawiker_publish_page', 'mediawiker_add_category',
-                            'mediawiker_category_list', 'mediawiker_search_string_list',
-                            'mediawiker_add_image', 'mediawiker_add_template',
-                            'mediawiker_upload']
 
         if self.action == 'mediawiker_show_page':
             if mw.get_setting('mediawiker_newtab_ongetpage'):
                 self.run_in_new_window = True
 
-            if not title:
-                pagename_default = ''
-                # use clipboard or selected text for page name
-                if bool(mw.get_setting('mediawiker_clipboard_as_defaultpagename')):
-                    pagename_default = sublime.get_clipboard().strip()
-                if not pagename_default:
-                    selection = self.window.active_view().sel()
-                    # for selreg in selection:
-                    #     pagename_default = self.window.active_view().substr(selreg).strip()
-                    #     break
-                    pagename_default = self.window.active_view().substr(selection[0]).strip()
-                self.window.show_input_panel('Wiki page name:', mw.pagename_clear(pagename_default), self.on_done, self.on_change, None)
-            else:
-                self.on_done(title)
-        elif self.action == 'mediawiker_reopen_page':
-            # get page name
-            if not title:
-                title = mw.get_title()
-            self.action = 'mediawiker_show_page'
-            self.on_done(title)
-        elif self.action in actions_validate:
-            self.on_done('')
+            panel = mw.InputPanelPageTitle()
+            panel.on_done = self.on_done
+            panel.get_title(title)
 
-    def on_change(self, title):
-        """ Invoked whenever the content of the input panel is changed. """
-        if title:
-            pagename_cleared = mw.pagename_clear(title)
-            if title != pagename_cleared:
-                self.window.show_input_panel('Wiki page name:', pagename_cleared, self.on_done, self.on_change, None)
+        else:
+            if self.action == 'mediawiker_reopen_page':
+                self.action = 'mediawiker_show_page'
+            title = title if title else mw.get_title()
+            self.on_done(title)
 
     def on_done(self, title):
-        """ Invoked when the title has been set. Will then pass the 'action' keyword
-        and title on to mediawiker_validate_connection_params window command. """
-        if self.run_in_new_window:
-            sublime.active_window().new_file()
-            self.run_in_new_window = False
-        try:
-            if title:
-                title = mw.pagename_clear(title)
-            self.window.run_command("mediawiker_validate_connection_params",
-                                    {"title": title, "action": self.action, "args": self.action_args})
-        except ValueError as e:
-            sublime.message_dialog(e)
+        if title:
+            title = mw.pagename_clear(title)
 
-class MediawikerValidateConnectionParamsCommand(sublime_plugin.WindowCommand):
-    """
-    Command string: mediawiker_validate_connection_params
-    This is called (with run) in MediawikerPageCommand.run()
-    in order to perform last preparations before executing the action that
-    interacts with the wiki. (Basically just obtain password if required...)
-
-    The <action> command string string will be invoked in the active view.
-    This is typically a text command that interacts with the mediawiki server,
-    e.g. mediawikier_show_page (MediawikerShowPageCommand).
-
-    <title> argument must be wikipage title, not filename.
-    """
-    site = None
-    password = ''
-    title = ''
-    action = ''
-    is_hide_password = False
-    PASSWORD_CHAR = u'\u25CF'
-
-    def run(self, title, action, args=None):
-        """
-        Command entry point. Usually invoked from/via MediawikerPage command, which
-        makes sure to set title and action (text command).
-        This will obtain and validate connection parameters including password if required.
-        """
-        self.is_hide_password = mw.get_setting('mediawiker_password_input_hide')
-        self.PASSWORD_CHAR = mw.get_setting('mediawiker_password_char')
-        self.action = action  # TODO: check for better variant
-        self.action_args = args
         self.title = title
-        site = mw.get_view_site()
-        site_list = mw.get_setting('mediawiki_site')
-        self.password = site_list[site]["password"]
-        if site_list[site]["username"]:
-            # auth required if username exists in settings
-            if not self.password:
-                # need to ask for password
-                self.window.show_input_panel('Password:', '', self.on_done, self.on_change, None)
-            else:
-                self.call_page()
-        else:
-            # auth is not required
-            self.call_page()
+        panel_passwd = mw.InputPanelPassword()
+        panel_passwd.command_run = self.command_run
+        panel_passwd.get_password()
 
-    def _get_password(self, str_val):
-        """ Return a replacement string for a password, e.g. _get_password("Monty") -> "*****". """
-        self.password = self.password + str_val.replace(self.PASSWORD_CHAR, '')
-        return self.PASSWORD_CHAR * len(self.password)
+    def command_run(self, password):
+        # cases:
+        # from view with page, opened from other site_active than in global settings - new page will be from the same site
+        # from view with page, open page with another lang site - site param must be defined, will set it
+        # from view with undefined site (new) open page by global site_active setting
+        if not self.site_active:
+            self.site_active = mw.get_view_site()
 
-    def on_change(self, str_val):
-        """
-        Invoked repeatedly as the user types password in the input panel.
-        If mediawiker_password_input_hide setting is set to True, then this call will:
-        1) Append all non-asterix chars in the input panel to self.password (asterix aka PASSWORD_CHAR)
-        2) Replace the current content of the input panel with an asterix-only string of equal length.
-        """
-        if str_val:
-            if self.is_hide_password:
-                # password hiding hack..
-                if str_val:
-                    password = str_val
-                    str_val = self._get_password(str_val)
-                    if password != str_val:
-                        password = str_val
-                        self.window.show_input_panel('Password:', str_val, self.on_done, self.on_change, None)
-        else:
-            self.password = ''
+        if self.run_in_new_window:
+            self.window.new_file()
+            self.run_in_new_window = False
 
-    def on_done(self, password):
-        """ Invoked when the user has entered his password.
-        If self.is_hide_password is True, then the password argument will consist only of asterix'es. """
-        if not self.is_hide_password:
-            self.password = password
-        self.call_page()
-
-    def call_page(self):
-        """ Invoke the action command string in the active view, providing title and password as keyword arguments. """
-        action_args = {"title": self.title, "password": self.password}
-        if self.action_args:
-            action_args.update(self.action_args)
-        self.window.active_view().run_command(self.action, action_args)
+        self.window.active_view().settings().set('mediawiker_site', self.site_active)
+        self.window.active_view().run_command(self.action, {"title": self.title, "password": password})
 
 
 class MediawikerOpenPageCommand(sublime_plugin.WindowCommand):
@@ -1963,3 +1866,73 @@ class MediawikerCompletionsEvent(sublime_plugin.EventListener):
                             completions.append((page_show, page_insert))
 
             return completions
+
+
+class MediawikerShowPageLanglinksCommand(sublime_plugin.WindowCommand):
+    ''' alias to Get page command '''
+
+    def run(self):
+        self.window.run_command("mediawiker_page", {"action": "mediawiker_page_langlinks"})
+
+
+class MediawikerPageLanglinksCommand(sublime_plugin.TextCommand):
+
+    def run(self, edit, title, password):
+        sitecon = mw.get_connect(password)
+        # selection = self.view.sel()
+        # search_pre = self.view.substr(selection[0]).strip()
+        selected_text = self.view.substr(self.view.sel()[0]).strip()
+        title = selected_text if selected_text else title
+        self.mw_get_page_langlinks(sitecon, title)
+
+        self.lang_prefixes = []
+        for lang_prefix in self.links.keys():
+            self.lang_prefixes.append(lang_prefix)
+
+        self.links_names = ['%s: %s' % (lp, self.links[lp]) for lp in self.lang_prefixes]
+        if self.links_names:
+            sublime.active_window().show_quick_panel(self.links_names, self.on_done)
+        else:
+            sublime.status_message('Unable to find laguage links for "%s"' % title)
+
+    def mw_get_page_langlinks(self, site, title):
+        self.links = {}
+        page = site.Pages[title]
+        linksgen = page.langlinks()
+        if linksgen:
+            while True:
+                try:
+                    prop = linksgen.next()
+                    self.links[prop[0]] = prop[1]
+                except StopIteration:
+                    break
+
+    def on_done(self, index):
+        if index >= 0:
+            self.lang_prefix = self.lang_prefixes[index]
+            self.page_name = self.links[self.lang_prefix]
+
+            self.process_options = ['Open selected page', 'Replace selected text']
+            sublime.active_window().show_quick_panel(self.process_options, self.process)
+
+    def process(self, index):
+        if index == 0:
+            site_active_new = None
+            site_active = mw.get_view_site()
+            sites = mw.get_setting('mediawiki_site')
+            host = sites[site_active]['host']
+            domain_first = '.'.join(host.split('.')[-2:])
+            # NOTE: only links like lang_prefix.site.com supported.. (like en.wikipedia.org)
+            host_new = '%s.%s' % (self.lang_prefix, domain_first)
+            # if host_new exists in settings we can open page
+            for site in sites:
+                if sites[site]['host'] == host_new:
+                    site_active_new = site
+                    break
+            if site_active_new:
+                # open page with force site_active_new
+                sublime.active_window().run_command("mediawiker_page", {"title": self.page_name, "action": "mediawiker_show_page", "site_active": site_active_new})
+            else:
+                sublime.status_message('Settings not found for host %s.' % (host_new))
+        elif index == 1:
+            self.view.run_command('mediawiker_replace_text', {'text': self.page_name})
