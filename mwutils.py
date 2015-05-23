@@ -1,5 +1,14 @@
-#!/usr/bin/env python\n
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# pylint: disable=invalid-name,line-too-long
+
+"""
+
+Utility module for Mediawikier package.
+
+To import from within Sublime:
+>>> from Mediawiker import mwutils as mw
+"""
 
 from __future__ import print_function
 import sys
@@ -17,8 +26,10 @@ pythonver = sys.version_info[0]
 # Load local modules:
 if pythonver >= 3:
     from . import mwclient
+    from .lib.cache_decorator import cached_property
 else:
     import mwclient
+    from lib.cache_decorator import cached_property
 
 
 
@@ -347,7 +358,7 @@ def get_title():
     view_name = sublime.active_window().active_view().name()
     if view_name:
         print("DEBUG: view_name: ", view_name, "strunquote(view_name)=", strunquote(view_name))
-        return view_name
+        return strunquote(view_name)
     else:
         # haven't view.name, try to get from view.file_name (without extension)
         file_name = sublime.active_window().active_view().file_name()
@@ -356,11 +367,29 @@ def get_title():
             title, ext = os.path.splitext(os.path.basename(file_name))
             if ext[1:] in wiki_extensions and title:
                 print("DEBUG: rewriting filename_stem %s -> %s" % (title, strunquote(title)))
-                return title
+                return strunquote(title)
             else:
                 sublime.status_message('Unauthorized file extension for mediawiki publishing. Check your configuration for correct extensions.')
                 return ''
     return ''
+
+
+def get_filename(title):
+    """
+    Return a file-system friendly/compatible filename from title.
+    """
+    file_rootdir = get_setting('mediawiker_file_rootdir', None)
+    if not file_rootdir:
+        return strquote(title)
+    use_subdirs = get_setting('mediawiker_use_subdirs', False)
+    if use_subdirs:
+        filename = os.path.join(file_rootdir, *(strquote(item) for item in os.path.split(title)))
+        filedir = os.path.dirname(filename)
+        if not os.path.isdir(filedir):
+            print("Making dir:", filedir)
+            os.makedirs(filedir)
+        return filename
+    return os.path.join(file_rootdir, strquote(title))
 
 
 def get_hlevel(header_string, substring):
@@ -414,6 +443,82 @@ def get_template_params(template):
     pattern = r'\{{3}(.*?)\}{3}' # Changed regex pattern so we only capture the argument and not the braces.
     parameters = re.findall(pattern, template)
     return parameters
+
+def get_template_params_dict(template, defaultvalue=''):
+    """
+    As get_template_params, but returns a dict of {paramname : defaultvalue}.
+    Use the defaultvalue keyword to specify the default value for parameters that
+    don't specify a default value in the template (default is an empty string, '').
+    Usage:
+        >>> text = 'hi {{{1}}} - nice to see {{{2|you}}}. Have a nice {{{time|day}}}'
+        >>> get_template_params(text, default='')
+        {'1': '', '2': 'you', 'time: 'day'}
+    """
+    parameters = get_template_params(template)
+    parameters = dict((split[0], split[1] if len(split) > 1 else defaultvalue) for split in
+                      (param.split('|') for param in parameters)) # Python 2.6 does not support dict comprehensions.
+    return parameters
+
+# This should be a function; not a method. ("self" isn't used).
+def get_template_params_str(text):
+    """
+    Mediawiki Template parameters can be provided in three way:
+        Anonymous: {{myTemplate|firstparam|2ndparam}} - will replate {{{1}}} with firstparam and {{{2}}} with 2ndparam
+        Numbered:  {{myTemplate|2=2ndparam|1=firstparam}} - same result as above.
+        Named:     {{myTemplate|sec=2ndparam|fir=firstparam}} - will replace {{{sec}}} with 2ndparam and {{{fir}}} with firstparam
+    In a template, the parameter placeholders can have default values:
+        {{{1|the1param}}}, {{{other|someotherparam}}}
+    If a parameter is not given when referencing the template with {{myTemplate}},
+    and the parameter placeholder in the template does not have a default value,
+    then the parameter placeholder is simply displayed in the output, e.g. {{{1}}}.
+
+    Usage: Typical usage is when referencing (by transclusion or substitution) a template:
+        >>> template = "hi {{{1}}} - nice to see {{{2|you}}}. Have a nice {{{time|day}}}"
+        >>> params_str = get_template_params_str(template) # Returns '|1=\n|2=you\n|time=day\n'
+        >>> template_link_text = {{%s%s%s}} % ('myTemplate', '\n' if params_str else '', params_str)
+        >>> print template_link_text
+        {{myTemplate:
+        }}
+    """
+    params_dict = get_template_params_dict(text)
+    return ''.join('|%s=%s\n' % (name, defval) for name, defval in sorted(params_dict.items()))
+
+def make_template_example_usage(template):
+    """
+    TODO: Add test for this and other simple functions.
+    """
+    params = get_template_params_dict(template)
+    template_name = get_filename(template)
+    params_str = "\n".join("| {0}=Example {0}".format(key) for key in sorted(params.keys()))
+    return "Usage:\n{{ %s\n%s\n}}" % (template_name, params_str)
+
+def substitute_template_params(template, params, defaultvalue='', keep_unmatched=False):
+    """
+    Return template where where named placeholders have been substituted with parameters.
+    Args:
+        template : The template to substitute, e.g. "first: {{{firstparam}}} and another: {{{secondparam}}}, and a third: {{{thirdparam}}}."
+        params : dict of named parameters. Use '1' as string for paramter placeholder {{{1}}}, etc. (I recommend using named placeholders...)
+        defaultvalue : Default value to use if a parameter placeholder name is not found in the params dict.
+        keep_unmatched : If this is set to True, then only replace parameter placeholder that are found in the 'params' dict.
+            E.g. if params does not include the key 'someparam', then occurences of the
+            placeholder {{{someparam}}} in the template will NOT be replaced by defaultvalue,
+            but instead {{{someparam}}} is kept. This simulates the native behaviour of mediawiki.
+            (But note that this function does NOT account for <noinclude> or <!-- --> tags!)
+    Usage:
+        >>> template = "first: {{{firstparam}}} and another: {{{secondparam}}}";
+        >>> substitute_template_params(template, {'firstparam': '1st'}, defaultvalue='empty')
+        'first: 1st and another: empty'
+        >>> substitute_template_params(template, {'firstparam': '1st'}, keep_unmatched=True)
+        'first: 1st and another: {{{secondparam}}}'
+    """
+    pattern = r"\{{3}(.*?)\}{3}"
+    if keep_unmatched:
+        def repl(match):
+            return params.get(match.group(1), match.group(0))
+    else:
+        def repl(match):
+            return params.get(match.group(1), defaultvalue)
+    return re.sub(pattern, repl, template)
 
 
 # classes..
