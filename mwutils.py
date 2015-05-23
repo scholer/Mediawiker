@@ -26,11 +26,9 @@ pythonver = sys.version_info[0]
 # Load local modules:
 if pythonver >= 3:
     from . import mwclient
-    from .mwclient import errors
     from .lib.cache_decorator import cached_property
 else:
     import mwclient
-    from mwclient import errors
     from lib.cache_decorator import cached_property
 
 
@@ -159,16 +157,18 @@ def http_auth(http_auth_header, host, path, login, password):
     return sitecon
 
 
-def get_connect(password=''):
+def get_connect(password=None):
     """ Returns a mwclient connection to the active MediaWiki site. """
     DIGEST_REALM = 'Digest realm'
     BASIC_REALM = 'Basic realm'
-    site_active = get_setting('mediawiki_site_active')
+    site_active = get_view_site()
     site_list = get_setting('mediawiki_site')
     site_params = site_list[site_active]
     site = site_params['host']
     path = site_params['path']
     username = site_params['username']
+    if password is None:
+        password = site_params['password']
     domain = site_params['domain']
     proxy_host = site_params.get('proxy_host', '')
     is_https = site_params.get('https', False)
@@ -229,8 +229,11 @@ def get_connect(password=''):
     # if login is not empty - auth required
     if username:
         try:
-            sitecon.login(username=username, password=password, domain=domain)
-            sublime.status_message('Logon successfully.')
+            if sitecon is not None:
+                sitecon.login(username=username, password=password, domain=domain)
+                sublime.status_message('Logon successfully.')
+            else:
+                sublime.status_message('Login failed: connection unavailable.')
         except mwclient.LoginError as e:
             sublime.status_message('Login failed: %s' % e[1]['result'])
             return
@@ -240,7 +243,6 @@ def get_connect(password=''):
     else:
         sublime.status_message('Connection without authorization')
     return sitecon
-
 
 
 class SiteconnMgr():
@@ -272,6 +274,8 @@ class SiteconnMgr():
         del self.Siteconn
 
 
+# wiki related functions..
+
 
 def get_page_text(site, title):
     """ Get the content of a page by title. """
@@ -290,7 +294,7 @@ def save_mypages(title, storage_name='mediawiker_pagelist'):
 
     title = title.replace('_', ' ')  # for wiki '_' and ' ' are equal in page name
     pagelist_maxsize = get_setting('mediawiker_pagelist_maxsize')
-    site_active = get_setting('mediawiki_site_active')
+    site_active = get_view_site()
     mediawiker_pagelist = get_setting(storage_name, {})
 
     my_pages = mediawiker_pagelist.setdefault(site_active, [])
@@ -345,7 +349,7 @@ def strunquote(string_value, quote_plus=None):
 
 def pagename_clear(pagename):
     """ Return clear pagename if page-url was set instead of.."""
-    site_active = get_setting('mediawiki_site_active')
+    site_active = get_view_site()
     site_list = get_setting('mediawiki_site')
     site = site_list[site_active]['host']
     pagepath = site_list[site_active]['pagepath']
@@ -422,7 +426,7 @@ def get_category(category_full_name):
 
 def get_page_url(page_name=''):
     """ Returns URL of page with title of the active document, or <page_name> if given. """
-    site_active = get_setting('mediawiki_site_active')
+    site_active = get_view_site()
     site_list = get_setting('mediawiki_site')
     site = site_list[site_active]["host"]
 
