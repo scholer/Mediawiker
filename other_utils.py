@@ -3,6 +3,7 @@
 # pylint: disable=invalid-name,line-too-long
 
 
+import os
 import sys
 import logging
 import sublime
@@ -126,4 +127,3 @@ def set_login_cookie(value, cookie_key='open_id_session_id', site_name=None):
     sites[site_name]['cookies'][cookie_key] = value
     settings.set('mediawiki_site', sites)   # Saving the complete 'mediawiki_site' entry, otoh, will persist the change.
     sublime.save_settings('Mediawiker.sublime-settings')
-
