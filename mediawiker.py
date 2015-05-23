@@ -76,7 +76,10 @@ class MediawikerPageCommand(sublime_plugin.WindowCommand):
 
 
 class MediawikerOpenPageCommand(sublime_plugin.WindowCommand):
-    ''' alias to Get page command '''
+    """
+    Open a page, using mediawiker_page->mediawiker_validate_connection_params->mediawiker_show_page command chain.
+    Command string: mediawiker_open_page (window command).
+    """
 
     def run(self):
         self.window.run_command("mediawiker_page", {"action": "mediawiker_show_page"})
@@ -292,7 +295,7 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
     def run(self, edit, title, password):
         try:
             sitecon = mw.get_connect(password)
-        except (mw.mwclient.HTTPRedirectError, errors.HTTPRedirectError) as exc:
+        except mw.mwclient.HTTPRedirectError as exc:
             msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired.'
             sublime.status_message(msg)
             print(msg + "; Error:", exc)

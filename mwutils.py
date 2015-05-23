@@ -266,9 +266,6 @@ def save_mypages(title, storage_name='mediawiker_pagelist'):
     site_active = get_view_site()
     mediawiker_pagelist = get_setting(storage_name, {})
 
-    if site_active not in mediawiker_pagelist:
-        mediawiker_pagelist[site_active] = []
-
     my_pages = mediawiker_pagelist.setdefault(site_active, [])
 
     if my_pages:
@@ -285,7 +282,7 @@ def save_mypages(title, storage_name='mediawiker_pagelist'):
 ### HANDLING PAGE TITLES, Quoting and unquoting ###
 
 
-def strquote(string_valuee, quote_plus=None, safe=None):
+def strquote(string_value, quote_plus=None, safe=None):
     """
     str quote and unquote:
         quoting will replace reserved characters (: ; ? @ & = + $ , /) with encoded versions,
@@ -349,6 +346,7 @@ def get_title():
 
     view_name = sublime.active_window().active_view().name()
     if view_name:
+        print("DEBUG: view_name: ", view_name, "strunquote(view_name)=", strunquote(view_name))
         return view_name
     else:
         # haven't view.name, try to get from view.file_name (without extension)
@@ -357,6 +355,7 @@ def get_title():
             wiki_extensions = get_setting('mediawiker_files_extension')
             title, ext = os.path.splitext(os.path.basename(file_name))
             if ext[1:] in wiki_extensions and title:
+                print("DEBUG: rewriting filename_stem %s -> %s" % (title, strunquote(title)))
                 return title
             else:
                 sublime.status_message('Unauthorized file extension for mediawiki publishing. Check your configuration for correct extensions.')
@@ -377,6 +376,7 @@ def get_category(category_full_name):
 
 
 def get_page_url(page_name=''):
+    """ Returns URL of page with title of the active document, or <page_name> if given. """
     site_active = get_view_site()
     site_list = get_setting('mediawiki_site')
     site = site_list[site_active]["host"]
@@ -388,6 +388,8 @@ def get_page_url(page_name=''):
     proto = 'https' if is_https else 'http'
     pagepath = site_list[site_active]["pagepath"]
     if not page_name:
+        # For URLs, we need to quote spaces to '%20' rather than '+' and not replace '/' with '%2F'
+        # Thus, force use of quote rather than quote_plus and use safe='/'.
         page_name = strquote(get_title(), quote_plus=False, safe='/')
     if page_name:
         return '%s://%s%s%s' % (proto, site, pagepath, page_name)
