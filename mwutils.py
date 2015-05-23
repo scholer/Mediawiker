@@ -1,8 +1,9 @@
 #!/usr/bin/env python\n
 # -*- coding: utf-8 -*-
 
+from __future__ import print_function
 import sys
-from os.path import splitext, basename
+import os
 import re
 import urllib
 import base64
@@ -13,21 +14,40 @@ import sublime
 
 pythonver = sys.version_info[0]
 
+# Load local modules:
 if pythonver >= 3:
     from . import mwclient
 else:
     import mwclient
 
 
+
+### SETTINGS HANDLING ###
+
 def get_setting(key, default_value=None):
+    """
+    Returns setting for key <key>, defaulting to default_value if not present (default: None)
+    Note that the returned object seems to be a copy;
+    changes, even to mutable entries, cannot simply be persisted with sublime.save_settings.
+    You have to keep a reference to the original settings object and make changes to this.
+    """
     settings = sublime.load_settings('Mediawiker.sublime-settings')
     return settings.get(key, default_value)
 
 
 def set_setting(key, value):
+    """ Set setting for key <key>, to value <value>. """
     settings = sublime.load_settings('Mediawiker.sublime-settings')
     settings.set(key, value)
     sublime.save_settings('Mediawiker.sublime-settings')
+
+
+def get_site_params(name=None):
+    """ Get site parameters for active site, or site <name> if specified. """
+    if name is None:
+        name = get_setting('mediawiki_site_active')
+    sites = get_setting('mediawiki_site')
+    return sites[name]
 
 
 def get_view_site():
@@ -37,6 +57,8 @@ def get_view_site():
         # st2 exception on start.. sublime not available on activated..
         return get_setting('mediawiki_site_active')
 
+
+### CONNECTION HANDLING ###
 
 def enco(value):
     ''' for md5 hashing string must be encoded '''
@@ -53,6 +75,7 @@ def deco(value):
 
 
 def get_digest_header(header, username, password, path):
+    """ Return an auth header for use in the "Digest" authorization realm. """
     HEADER_ATTR_PATTERN = r'([\w\s]+)=\"?([^".]*)\"?'
     METHOD = "POST"
     header_attrs = {}
@@ -147,9 +170,13 @@ def get_connect(password=None):
         proto = 'https' if is_https else 'http'
         path = '%s://%s%s' % (proto, site, path)
         sublime.message_dialog('Connection with proxy: %s %s' % (host, path))
+    # If the mediawiki instance has OpenID login (e.g. google), it is easiest to
+    # login by injecting the open_id_session_id cookie into the session's cookie jar:
+    inject_cookies = site_params.get('cookies')
 
     try:
-        sitecon = mwclient.Site(host=host, path=path)
+        # I have modified mwclient in order to be able to pass in custom cookies
+        sitecon = mwclient.Site(host=host, path=path, inject_cookies=inject_cookies)
     except mwclient.HTTPStatusError as exc:
         e = exc.args if pythonver >= 3 else exc
         is_use_http_auth = site_params.get('use_http_auth', False)
@@ -161,6 +188,12 @@ def get_connect(password=None):
         else:
             sublime.status_message('HTTP connection failed: %s' % e[1])
             raise Exception('HTTP connection failed.')
+    except mwclient.HTTPRedirectError as exc:
+        # if redirect to '/login.php' page:
+        msg = 'Connection to server failed. If you are logging in with an open_id session cookie, it may have expired. (HTTPRedirectError: %s)' % exc
+        print(msg)
+        sublime.status_message(msg)
+        raise exc
 
     # if login is not empty - auth required
     if username:
@@ -173,14 +206,48 @@ def get_connect(password=None):
         except mwclient.LoginError as e:
             sublime.status_message('Login failed: %s' % e[1]['result'])
             return
+    elif inject_cookies:
+        sublime.status_message('Connected using cookies: %s' % ", ".join(inject_cookies.keys()))
+        print('Connected using cookies: %s' % ", ".join(inject_cookies.keys()))
     else:
         sublime.status_message('Connection without authorization')
     return sitecon
+
+
+class SiteconnMgr():
+    """
+    Site connection manager.
+    Primitive attempt at saving connection between calls.
+    Making a new mw.get_connect every time seems in-efficient...
+    Currently just used to provide a cachable connection.
+    """
+
+    def __init__(self, password=None):
+        self.password = password
+        self.conn = None
+
+    @cached_property(ttl=120)
+    def Siteconn(self):
+        """
+        cached_property caches values using
+        self._cache[propname] = (value, last_update)
+        To expire use: del siteconmgr.Siteconn
+        """
+        return get_connect(self.password)
+
+    def reset_conn(self, password=None):
+        self.del_conn()
+        return self.Siteconn
+
+    def del_conn(self, ):
+        del self.Siteconn
+
 
 # wiki related functions..
 
 
 def get_page_text(site, title):
+    """ Get the content of a page by title. """
     denied_message = 'You have not rights to edit this page. Click OK button to view its source.'
     page = site.Pages[title]
     if page.can('edit'):
@@ -202,20 +269,23 @@ def save_mypages(title, storage_name='mediawiker_pagelist'):
     if site_active not in mediawiker_pagelist:
         mediawiker_pagelist[site_active] = []
 
-    my_pages = mediawiker_pagelist[site_active]
+    my_pages = mediawiker_pagelist.setdefault(site_active, [])
 
     if my_pages:
+        if title in my_pages:
+            # for sorting - remove *before* trimming size, not after.
+            my_pages.remove(title)
         while len(my_pages) >= pagelist_maxsize:
             my_pages.pop(0)
 
-        if title in my_pages:
-            # for sorting
-            my_pages.remove(title)
     my_pages.append(title)
     set_setting(storage_name, mediawiker_pagelist)
 
 
-def strquote(string_value):
+### HANDLING PAGE TITLES, Quoting and unquoting ###
+
+
+def strquote(string_valuee, quote_plus=None, safe=None):
     """
     str quote and unquote:
         quoting will replace reserved characters (: ; ? @ & = + $ , /) with encoded versions,
@@ -224,6 +294,7 @@ def strquote(string_value):
     quote_plus will further replace spaces with '+' and defaults to safe='' (i.e. all reserved are replaced.)
     Note that the 'safe' argument only applies when quoting; unquoting will always convert all.
     """
+    # Support for "quote_plus": escapes '/' to '%2F' and space ' ' with '+' rather than '%20'
     if quote_plus is None:
         quote_plus = get_setting("mediawiki_quote_plus", False)
     if safe is None:
@@ -236,12 +307,16 @@ def strquote(string_value):
         return quote(string_value.encode('utf-8'), safe=safe)
 
 
-def strunquote(string_value):
+def strunquote(string_value, quote_plus=None):
     """ Reverses the effect of strquote() """
+    if quote_plus is None:
+        quote_plus = get_setting("mediawiki_quote_plus", False)
     if pythonver >= 3:
-        return urllib.parse.unquote(string_value)
+        unquote = urllib.parse.unquote_plus if quote_plus else urllib.parse.unquote
+        return unquote(string_value)
     else:
-        return urllib.unquote(string_value.encode('ascii')).decode('utf-8')
+        unquote = urllib.unquote_plus if quote_plus else urllib.quote
+        return unquote(string_value.encode('ascii')).decode('utf-8')
 
 
 def pagename_clear(pagename):
@@ -265,7 +340,12 @@ def pagename_clear(pagename):
 
 
 def get_title():
-    ''' returns page title of active tab from view_name or from file_name'''
+    """
+    Returns page title of active tab from view_name or from file_name.
+    Be careful to make sure that the round-trip:
+        make_filename -> get_title() ->  make_filename()
+    Maps 1:1.
+    """
 
     view_name = sublime.active_window().active_view().name()
     if view_name:
@@ -275,7 +355,7 @@ def get_title():
         file_name = sublime.active_window().active_view().file_name()
         if file_name:
             wiki_extensions = get_setting('mediawiker_files_extension')
-            title, ext = splitext(basename(file_name))
+            title, ext = os.path.splitext(os.path.basename(file_name))
             if ext[1:] in wiki_extensions and title:
                 return title
             else:
@@ -297,7 +377,6 @@ def get_category(category_full_name):
 
 
 def get_page_url(page_name=''):
-    # site_active = mw.get_setting('mediawiki_site_active')
     site_active = get_view_site()
     site_list = get_setting('mediawiki_site')
     site = site_list[site_active]["host"]
@@ -309,11 +388,30 @@ def get_page_url(page_name=''):
     proto = 'https' if is_https else 'http'
     pagepath = site_list[site_active]["pagepath"]
     if not page_name:
-        page_name = strquote(get_title())
+        page_name = strquote(get_title(), quote_plus=False, safe='/')
     if page_name:
         return '%s://%s%s%s' % (proto, site, pagepath, page_name)
     else:
         return ''
+
+
+
+### TEMPLATE HANDLING, PARSING, INTERPOLATION ###
+
+
+def get_template_params(template):
+    """
+    There might be cases where we want to have the actual parameters
+    and not just a string, so I've split this out into separate functions.
+    Returns a list of parameters used in the template:
+    Usage:
+        >>> text = 'hi {{{1}}} - nice to see {{{2|you}}}. Have a nice {{{time|day}}}'
+        >>> get_template_params(text)
+        ['1', '2|you', 'time|day']
+    """
+    pattern = r'\{{3}(.*?)\}{3}' # Changed regex pattern so we only capture the argument and not the braces.
+    parameters = re.findall(pattern, template)
+    return parameters
 
 
 # classes..
