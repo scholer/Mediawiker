@@ -48,7 +48,7 @@ import sublime_plugin
 if sys.version_info[0] >= 3:
     from . import mwutils as mw
     from .other_utils import adjust_figlet_comment, adjust_figlet_todo, get_figlet_text
-    from .other_utils import get_login_cookie, get_login_cookie_key_and_value
+    from .other_utils import get_login_cookie, get_login_cookie_key_and_value, set_login_cookie
     try:
         from .lib.cookieshop.chrome_extract import get_chrome_cookies
     except ImportError as exc:
@@ -507,7 +507,7 @@ class MediawikerSetLoginCookie(sublime_plugin.WindowCommand):
         if not new_cookie:
             msg = "No cookie input..."
         else:
-            mw.set_login_cookie(new_cookie)
+            set_login_cookie(new_cookie)
             msg = "Login cookie set :)"
         print(msg)
         sublime.status_message(msg)
@@ -549,7 +549,7 @@ class MediawikerExtractChromeLoginCookie(sublime_plugin.WindowCommand):
         if user_confirm:
             self.window.run_command('mediawiker_set_login_cookie', {'new_cookie': new_cookie})
         else:
-            mw.set_login_cookie(new_cookie)
+            set_login_cookie(new_cookie)
 
 
 class MediawikerSavePageCommand(sublime_plugin.WindowCommand):
