@@ -8,8 +8,9 @@ import sys
 import logging
 import sublime
 
-logger = logging.getLogger(__name__)
+from .mwutils import get_site_params
 
+logger = logging.getLogger(__name__)
 
 ### Add pyfiglet library to path: ###
 # (pyfiglet is used to print big ascii letters and is used by e.g. MediawikerInsertBigTodoTextCommand)

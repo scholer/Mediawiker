@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# pylint: disable=W0142,C0302,C0301,C0103
-# pylint: disable=F0401,E1101,W0232,R0903,R0201,W0613,W0201,R0913
+# pylint: disable=W0142,C0302,C0301,C0103,C0111,W0221
+# pylint: disable=F0401,E1101,W0232,R0903,R0201,W0613,W0201,R0913,C0111
 
 """
 
@@ -1163,7 +1163,7 @@ class MediawikerTableSimpleToWikiCommand(sublime_plugin.TextCommand):
                         row_data.append({'properties': '', 'cell_data': cell_data, 'is_header': need_header})
                     if need_header:
                         need_header = False
-            if row_data and type(row_data) is list:
+            if row_data and isinstance(row_data, list):
                 table_data.append(row_data)
         return table_data
 
