@@ -38,7 +38,7 @@
                             {
                                 "command": "open_file",
                                 "args": {"file": "${packages}/Mediawiker/Mediawiker.sublime-settings"},
-                                "caption": "Settings - Default"
+                                "caption": "Settings – Default"
                             },
                             {
                                 "command": "open_file",
@@ -48,50 +48,12 @@
                             { "caption": "-" },
                             {
                                 "command": "open_file",
-                                "args": {
-                                    "file": "${packages}/Mediawiker/Default (Windows).sublime-keymap",
-                                    "platform": "Windows"
-                                },
+                                "args": {"file": "${packages}/Mediawiker/Default (${platform}).sublime-keymap"},
                                 "caption": "Key Bindings – Default"
                             },
                             {
                                 "command": "open_file",
-                                "args": {
-                                    "file": "${packages}/Mediawiker/Default (OSX).sublime-keymap",
-                                    "platform": "OSX"
-                                },
-                                "caption": "Key Bindings – Default"
-                            },
-                            {
-                                "command": "open_file",
-                                "args": {
-                                    "file": "${packages}/Mediawiker/Default (Linux).sublime-keymap",
-                                    "platform": "Linux"
-                                },
-                                "caption": "Key Bindings – Default"
-                            },
-                            {
-                                "command": "open_file",
-                                "args": {
-                                    "file": "${packages}/User/Default (Windows).sublime-keymap",
-                                    "platform": "Windows"
-                                },
-                                "caption": "Key Bindings – User"
-                            },
-                            {
-                                "command": "open_file",
-                                "args": {
-                                    "file": "${packages}/User/Default (OSX).sublime-keymap",
-                                    "platform": "OSX"
-                                },
-                                "caption": "Key Bindings – User"
-                            },
-                            {
-                                "command": "open_file",
-                                "args": {
-                                    "file": "${packages}/User/Default (Linux).sublime-keymap",
-                                    "platform": "Linux"
-                                },
+                                "args": {"file": "${packages}/User/Default (${platform}).sublime-keymap"},
                                 "caption": "Key Bindings – User"
                             }
                         ]

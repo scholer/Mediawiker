@@ -303,7 +303,10 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
     - new wiki page (in new buffer), if mediawiker_experiments_title_fmt is boolean true.
     - load buffer with template, if mediawiker_experiments_template
     --- and fill in template argument, as specified by mediawiker_experiments_template_args
-    - TODO: How about making a link to the page and appending it to the experiments_overview_page
+    - Done: Create link to the new experiment page and append it to experiments_overview_page.
+    - TODO: Move this command to ELN_Utils package.
+    - Done: Option to save view buffer to file.
+    - Done: Option to enable auto_save
     This is a window command, since we might not have any views open when it is invoked.
 
     Question: Does Sublime wait for window commands to finish, or are they dispatched to run
@@ -315,18 +318,11 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
 
     def run(self):
         ### Loading all relevant settings: ###
-        # The base directory where the user stores his experiments, e.g. /home/me/documents/experiments/
-        #self.exp_basedir = mw.get_setting('mediawiker_experiments_basedir')
-        #self.save_page_in_exp_folder = mw.get_setting('mediawiker_experiments_save_page_in_exp_folder', False)
-        # How to format the folder, e.g. "{expid} {exp_titledesc}"
         #self.exp_foldername_fmt = mw.get_setting('mediawiker_experiments_foldername_fmt')
-        # Experiments overview page: Manually lists (and links) to all experiments.
         #self.experiments_overview_page = mw.get_setting('mediawiker_experiments_overview_page')
         #self.experiment_overview_link_format = mw.get_setting('mediawiker_experiments_overview_link_fmt', "\n* [[{}]]")
         #self.template = mw.get_setting('mediawiker_experiments_template')
-        # Constant args to feed to the template (Mostly for shared templates).
         #self.template_kwargs = mw.get_setting('mediawiker_experiments_template_kwargs', {})
-        # title format, e.g. "MyExperiments/{expid} {exp_titledesc}". If not set, no new buffer is created.
         #self.title_fmt = mw.get_setting('mediawiker_experiments_title_fmt')
         # Which substitution mode to use:
         # "python-format" = template.format(**kwargs), "python-%" = template % kwargs, "mediawiki" = substitute_template_params(template, kwargs)
@@ -361,13 +357,25 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
 
         # Non-attribute settings:
         startdate = date.today().isoformat()    # datetime.now()
+        # The base directory where the user stores his experiments, e.g. /home/me/documents/experiments/
         exp_basedir = mw.get_setting('mediawiker_experiments_basedir')
+        # Experiments overview page: A file/page that lists (and links) to all experiments.
         experiments_overview_page = mw.get_setting('mediawiker_experiments_overview_page')
+        # title format, e.g. "MyExperiments/{expid} {exp_titledesc}". If not set, no new buffer is created.
         title_fmt = mw.get_setting('mediawiker_experiments_title_fmt')
         template = mw.get_setting('mediawiker_experiments_template')
+        # template parameters substitution mode. Can be any of 'python-fmt', 'python-%' or 'mediawiki'.
         template_subst_mode = mw.get_setting('mediawiker_experiments_template_subst_mode')
-        save_page_in_exp_folder = mw.get_setting('mediawiker_experiments_save_page_in_exp_folder', False)
+        # Constant args to feed to the template (Mostly for shared templates).
         template_kwargs = mw.get_setting('mediawiker_experiments_template_kwargs', {})
+        save_page_in_exp_folder = mw.get_setting('mediawiker_experiments_save_page_in_exp_folder', False)
+        # How to format the folder, e.g. "{expid} {exp_titledesc}"
+        # If exp_foldername_fmt is not specified, use title_fmt (remove any '/' and whatever is before it)?
+        foldername_fmt = mw.get_setting('mediawiker_experiments_foldername_fmt', (title_fmt or '').split('/')[-1])
+        # If save_to_file is True, the view/buffer is saved locally immediately upon creation:
+        save_to_file = mw.get_setting('mediawiker_experiments_save_to_file', True)
+        # Enable auto save. Requires auto-save plugin. github.com/scholer/auto-save
+        enable_autosave = mw.get_setting('mediawiker_experiments_enable_autosave', False)
 
         if not any((self.expid, self.exp_titledesc)):
             # If both expid and exp_title are empty, just abort:
@@ -375,8 +383,6 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
             return
 
         ## 1. Make experiment folder, if appropriate: ##
-        # If exp_foldername_fmt is not specified, use title_fmt (remove any '/' and whatever is before it)?
-        foldername_fmt = mw.get_setting('mediawiker_experiments_foldername_fmt', (title_fmt or '').split('/')[-1])
         if exp_basedir and foldername_fmt:
             if os.path.isdir(exp_basedir):
                 foldername = foldername_fmt.format(expid=self.expid, exp_titledesc=self.exp_titledesc)
@@ -491,6 +497,10 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
                 print("Using experiment_overview_page from the server is not yet supported.")
 
         print("MediawikerNewExperimentCommand completed!\n")
+        if save_to_file:
+            self.window.run_command("save")
+        if enable_autosave:
+            self.window.run_command("auto_save", args={"enable": True})
 
 
 class MediawikerSetLoginCookie(sublime_plugin.WindowCommand):
