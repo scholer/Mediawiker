@@ -5,3 +5,4 @@
 lib/*/old/*
 *.komodoproject
 patches/
+pylintrc

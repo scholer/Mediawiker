@@ -63,6 +63,17 @@ Solved issues:
     -- Creating a custom adaptor function, but that's easy.
 * OSX/Linux AES Crypto replacement/stand-in. -- Fixed using replacement module from TLS-Lite package.
 
+
+== Changes: ==
+
+2015-Jul-28:
+"The database schema for Chrome cookies has recently been changed to utilize partial indexes,
+which are supported on SQLite 3.8.0 and higher (https://www.sqlite.org/partialindex.html)."
+http://stackoverflow.com/questions/31652864/sqlite3-error-malformed-database-schema-is-transient-near-where-syntax-e
+The current library version (shipped with python 3.3.5) is:
+    sqlite3 sqlite version: 3.7.12
+
+
 """
 
 from __future__ import print_function
@@ -70,6 +81,7 @@ import os
 import sys
 import warnings
 import tempfile
+import shutil
 
 cookieshopdir = os.path.dirname(os.path.abspath(os.path.realpath(__file__)))
 libdir = os.path.dirname(cookieshopdir)
@@ -92,15 +104,33 @@ except ImportError:
 try:
     import sqlite3
 except ImportError:
-    # https://github.com/ghaering/pysqlite  (https://docs.python.org/2/library/sqlite3.html) -- is C code...
-    # pypi.python.org/pypi/PyDbLite , www.pydblite.net/en/index.html -- pure python, but a tad different from sqlite3.
-    # from pydblite import sqlite # pydblite relies on built-in sqlite3 or pysqlite2...
     try:
         from .sqlite3_adhoc import sqlite3
         print("chrome_extract: Using sqlite3_adhoc replacement module...")
     except ImportError as exc:
         print("ImportError while importing sqlite3 stand-in module:", exc)
         raise exc
+print("sqlite3.sqlite_version:", sqlite3.sqlite_version)
+print("sqlite3.version:", sqlite3.version)
+
+try:
+    import apsw
+except ImportError:
+    # https://github.com/ghaering/pysqlite  (https://docs.python.org/2/library/sqlite3.html) -- is C code...
+    # pypi.python.org/pypi/PyDbLite , www.pydblite.net/en/index.html -- pure python, but a tad different from sqlite3.
+    # from pydblite import sqlite # pydblite relies on built-in sqlite3 or pysqlite2...
+    try:
+        from .sqlite3_adhoc import apsw
+        print("chrome_extract: Using sqlite3_adhoc apsw replacement module...")
+    except ImportError as exc:
+        print("ImportError while importing sqlite3 apsw stand-in module:", exc)
+        #raise exc # Not fatal...
+        apsw = None
+print("apsw module:", apsw)
+if apsw:
+    print("apsw sqlite version:", apsw.sqlitelibversion())
+    print("apsw version:", apsw.apswversion())
+
 
 try:
     from Crypto.Cipher import AES
@@ -288,67 +318,105 @@ def chrome_decrypt(encrypted_value, key=None):
     return clean(decrypted)
 
 
+def temp_database_copy(dbpath):
+    """ Make a copy of dppath in a temporary directory. """
+    # TemporaryDirectory only for python 3.2+ :
+    #with tempfile.TemporaryDirectory() as tempdir:
+    try:
+        tempdir = tempfile.TemporaryDirectory()
+    except AttributeError:
+        tempdir = tempfile.mkdtemp()
+    tempdbpath = os.path.join(tempdir.name, os.path.basename(dbpath))
+    print("Copying db to temp file:", tempdbpath)
+    shutil.copy(dbpath, tempdbpath)
+    return (tempdir, tempdbpath)
+
+def clear_temp_database(tempdir, tempdbpath):
+    """ Remove temporary database and directory. """
+    try:
+        os.remove(tempdbpath)
+        try:
+            # If tempdir is a tempfile.TemporaryDirectory():
+            tempdir.cleanup()
+        except AttributeError:
+            # If tempdir is a normal tempfile.mkdtemp()
+            shutil.rmtree(tempdir)
+    except WindowsError as e:
+        print(e)
+
 
 def query_db(dbpath, query):
     """
     Connects to database in dbpath, queries with query
     and returns all matching rows as a list by calling fetchall()
     (I believe the returned values are byte strings, at least in some cases...)
+    Example usage:
+        from Mediawiker.lib.
+        query_db(r'C:/Users/scholer/AppData/Local/Google/Chrome/User Data/Default/Cookies',
+                 'select name, value, encrypted_value from cookies where host_key like "%lab.wyss.harvard.edu%"')
     """
+    print("Connecting to database:", dbpath)
     # Connect to the Database
-    print("Connecting to chrome database:", dbpath)
-    #conn = sqlite3.connect(dbpath)
-    #cursor = conn.cursor()
+    with sqlite3.connect(dbpath) as conn:
+        print("Database opened, executing query '%s'" % query)
+        cursor = conn.execute(query)
+        print("Query executed, fetching results...")
+        res = cursor.fetchall()
+    return res
+
+
+def query_db_apsw(dbpath, query):
+    """
+    Same as query_db(...) but using APSW instead of the native sqlite3.
+    """
+    print("Connecting to database:", dbpath)
+    with apsw.Connection(dbpath) as conn:
+        print("Database opened, executing query '%s'" % query)
+        # apsw.Connection does not have the short-hand "execute" method that native sqlite3 has...
+        cursor = conn.cursor()
+        cursor.execute(query)   # This will raise error if database is locked...
+        print("Query executed, fetching results...")
+        res = cursor.fetchall()
+        del cursor   # Make really, really sure that connection is closed
+    #conn.close() # before trying to remove database file.
+    return res
+
+
+def query_db_fallback_wrapper(dbpath, query):
+    """
+    Connect to database file in dbpath, issue <query> and return all results from fetchall().
+    This wrapper function will try the query, and, if it fails, make a temporary copy of
+    the database, which will then be queried.
+    """
+    print("Trying to connect to database:", dbpath)
+    if apsw:
+        print("Using APSW to query database...")
+        query_method = query_db_apsw
+        busy_exceptions = apsw.BusyError
+    else:
+        print("Using native sqlite3 to query database...")
+        query_method = query_db
+        busy_exceptions = sqlite3.OperationalError
     try:
-        with sqlite3.connect(dbpath) as conn:
-            # Get the results
-            # Consider using  conn.execute(sql) as short-hand for querying and returning all results...
-            #cursor.execute(query)
-            #res = cursor.fetchall()
-            print("Database opened, executing query '%s'" % query)
-            cursor = conn.execute(query)
-            print("Query executed, fetching results...")
-            res = cursor.fetchall()
-        print("- %s rows retrieved!" % len(res))
-    except sqlite3.OperationalError:
+        res = query_method(dbpath, query)
+    except busy_exceptions:
         print("- Could not connect to database: %s" % dbpath)
         print("- Database might be locked, e.g. if chrome is currently running.")
         print("- Will create a copy and try again...")
-        # TemporaryDirectory only for python 3.2+ :
-        #with tempfile.TemporaryDirectory() as tempdir:
-        try:
-            tempdir = tempfile.TemporaryDirectory()
-        except AttributeError:
-            tempdir = tempfile.mkdtemp()
-        tempdbpath = os.path.join(tempdir, os.path.basename(dbpath))
-        import shutil
-        print("Copying db to temp file:", tempdbpath)
-        shutil.copy(dbpath, tempdbpath)
-        print("Connecting to chrome database:", tempdbpath)
-        with sqlite3.connect(tempdbpath) as conn:
-            cursor = conn.execute(query)
-            res = cursor.fetchall()
-            #conn = sqlite3.connect(tempdbpath)
-            #cursor = conn.cursor()
-            ## Get the results
-            #cursor.execute(query)
-        print("- %s rows retrieved!" % len(res))
-        del cursor
-        conn.close()
-        try:
-            os.remove(tempdbpath)
-            try:
-                tempdir.cleanup()
-            except AttributeError:
-                shutil.rmtree(tempdir)
-        except WindowsError as e:
-            print(e)
+        tempdir, tempdbpath = temp_database_copy(dbpath)
+        print("Re-trying connecting to temp copy database:", tempdbpath)
+        res = query_method(tempdbpath, query)
+        clear_temp_database(tempdir, tempdbpath)
+    print("- %s rows retrieved!" % len(res))
 
     return res
 
+
+
 def query_cookies_db(query):
     """ Convenience function... """
-    return query_db(cookies_dbpath, query)
+    print("Querying chrome cookie database...")
+    return query_db_fallback_wrapper(cookies_dbpath, query)
 
 
 def get_chrome_logins():
@@ -385,10 +453,9 @@ def get_chrome_cookies(url, filter=None):
     key = make_chrome_cryptkey() # Encryption key (is None for Windows)
     query = cookie_query_for_domain(url)
     # SQL query returns rows with: name, value, encrypted_value
-    print("Querying database:")
     # Gets the full results list and closes db connection
     # Returns a list of key, value, encrypted_value, where key is cookie name.
-    cookie_entries = query_db(cookies_dbpath, query)
+    cookie_entries = query_cookies_db(query)
     if filter:
         print("Filtering...")
         cookie_entries = [(k, v, ev) for k, v, ev in cookie_entries if filter(k)]
