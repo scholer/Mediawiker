@@ -265,7 +265,10 @@ def get_page_text(site, title):
         return True, page.edit()
     else:
         if sublime.ok_cancel_dialog(denied_message):
-            return False, page.edit()
+            if page.can('read'):
+                return False, page.edit(readonly=True)
+            else:
+                return False, ''
         else:
             return False, ''
 
