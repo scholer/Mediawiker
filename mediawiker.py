@@ -696,13 +696,14 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
             print(msg + "; Error:", exc)
             return
         is_writable, text = mw.get_page_text(sitecon, title)
-        self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
-        self.view.settings().set('mediawiker_is_here', True)
-        self.view.settings().set('mediawiker_wiki_instead_editor', mw.get_setting('mediawiker_wiki_instead_editor'))
-        self.view.set_name(title)
 
-        if is_writable:
-            if not text:
+        if is_writable or text:
+            self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
+            self.view.settings().set('mediawiker_is_here', True)
+            self.view.settings().set('mediawiker_wiki_instead_editor', mw.get_setting('mediawiker_wiki_instead_editor'))
+            self.view.set_name(title)
+
+            if is_writable and not text:
                 sublime.status_message('Wiki page %s does not exists. You can create new..' % (title))
                 text = '<!-- New wiki page: Remove this with text of the new page -->'
             # insert text
@@ -720,14 +721,17 @@ class MediawikerShowPageCommand(sublime_plugin.TextCommand):
                 else:
                     self.view.set_name(filename)
             self.view.run_command('mediawiker_insert_text', {'position': 0, 'text': text})
-        sublime.status_message('Page %s was opened successfully from %s.' % (title, mw.get_view_site()))
-        if not mw.get_setting('mediawiker_title_to_filename', False):
-            # We have two modes: (a) The page ONLY lives on the server,
-            # or (b) The page lives primarily on disk and is occationally updated to the server.
-            # mediawiker_title_to_filename setting indicates that the user wants to save the page locally.
-            self.view.set_scratch(True)
-            # own is_changed flag instead of is_dirty for possib. to reset..
-            self.view.settings().set('is_changed', False)
+            sublime.status_message('Page %s was opened successfully from %s.' % (title, mw.get_view_site()))
+            if not mw.get_setting('mediawiker_title_to_filename', False):
+                # We have two modes: (a) The page ONLY lives on the server,
+                # or (b) The page lives primarily on disk and is occationally updated to the server.
+                # mediawiker_title_to_filename setting indicates that the user wants to save the page locally.
+                self.view.set_scratch(True)
+                # own is_changed flag instead of is_dirty for possib. to reset..
+                self.view.settings().set('is_changed', False)
+        else:
+            sublime.message_dialog('You have not rights to view this page.')
+            self.view.close()
 
 
 class MediawikerPublishPageCommand(sublime_plugin.TextCommand):

@@ -32,7 +32,7 @@
 The easiest way to install this is with [Package Control](http://wbond.net/sublime\_packages/package\_control).
 
  * If you just went and installed Package Control, you probably need to restart Sublime Text 2 before doing this next bit.
- * Bring up the Command Palette (Command+Shift+p on OS X, Control+Shift+p on Linux/Windows).
+ * Bring up the Command Palette (<kbd>Command</kbd>+<kbd>Shift</kbd>+<kbd>p</kbd> on OS X, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>p</kbd> on Linux/Windows).
  * Select "Package Control: Install Package" (it'll take a few seconds)
  * Select Mediawiker when the list appears.
 
@@ -88,7 +88,7 @@ Download this repo using the "ZIP" button above, unzip and place the files in "/
 * **(Buggy) Wiki table to Simple** command to transform the selected table (or under cursor) to *Simple table* (for using with plugin [TableEdit](https://github.com/vkocubinsky/SublimeTableEditor)).
 * **(Buggy) Simple table to wiki** command to convert *Simple table* back to wiki syntax.
 * Native Sublime text **Command palette** with predefined filter of plugin's commands and snippets.
-  * *Alt+F11*
+  * *<kbd>Alt</kbd>+<kbd>F11</kbd>*
 
 ### Predefined mediawiki sites settings
 Note: You must setup your credentials for authorization in the settings.
