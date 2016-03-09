@@ -4,4 +4,4 @@
 *.orig
 lib/*/old/*
 *.komodoproject
-
+.DS_Store

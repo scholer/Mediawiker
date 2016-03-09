@@ -572,6 +572,7 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
 
         ## 1. Make experiment folder, if appropriate: ##
         # If exp_foldername_fmt is not specified, use title_fmt (remove any '/' and whatever is before it)?
+        foldername = folderpath = None
         foldername_fmt = mw.get_setting('mediawiker_experiments_foldername_fmt', (title_fmt or '').split('/')[-1])
         if exp_basedir and foldername_fmt:
             if os.path.isdir(exp_basedir):
@@ -587,7 +588,6 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
             else:
                 # We are not creating a new folder for the experiment because basedir doesn't exists:
                 msg = "Specified experiment base dir does not exists: %s" % (exp_basedir,)
-                foldername = folderpath = None
             print(msg)
             sublime.status_message(msg)
 
