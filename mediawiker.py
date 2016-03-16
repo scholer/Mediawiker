@@ -359,11 +359,15 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
         startdate = date.today().isoformat()    # datetime.now()
         # The base directory where the user stores his experiments, e.g. /home/me/documents/experiments/
         exp_basedir = mw.get_setting('mediawiker_experiments_basedir')
+        if exp_basedir:
+            exp_basedir = os.path.expanduser(exp_basedir)
         # Experiments overview page: A file/page that lists (and links) to all experiments.
         experiments_overview_page = mw.get_setting('mediawiker_experiments_overview_page')
         # title format, e.g. "MyExperiments/{expid} {exp_titledesc}". If not set, no new buffer is created.
         title_fmt = mw.get_setting('mediawiker_experiments_title_fmt')
         template = mw.get_setting('mediawiker_experiments_template')
+        if template and template.startswith("~"):
+            template = os.path.expanduser(template)
         # template parameters substitution mode. Can be any of 'python-fmt', 'python-%' or 'mediawiki'.
         template_subst_mode = mw.get_setting('mediawiker_experiments_template_subst_mode')
         # Constant args to feed to the template (Mostly for shared templates).
@@ -410,6 +414,7 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
             view_default_dir = folderpath if save_page_in_exp_folder and folderpath \
                                           else mw.get_setting('mediawiker_file_rootdir')
             if view_default_dir:
+                view_default_dir = os.path.expanduser(view_default_dir)
                 print("Setting view's default dir to:", view_default_dir)
                 exp_view.settings().set('default_dir', view_default_dir) # Update the view's working dir.
             exp_view.set_name(filename)
@@ -427,12 +432,12 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
         ## 4. Generate template : ##
         if template:
             # Load the template: #
+            print("Using template:", template)
             if os.path.isfile(template):
                 # User specified a local file:
-                print("Using template:", template)
                 with open(template) as fd:
                     template_content = fd.read()
-                print("Template length:", len(template_content))
+                print(" - Template loaded from disk; length:", len(template_content))
             else:
                 # Assume template is a page on the server:
                 # This will load the page into the window's active_view (asking for password, if required):

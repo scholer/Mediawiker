@@ -384,6 +384,7 @@ def get_filename(title):
     file_rootdir = get_setting('mediawiker_file_rootdir', None)
     if not file_rootdir:
         return strquote(title)
+    file_rootdir = os.path.expanduser(file_rootdir)
     use_subdirs = get_setting('mediawiker_use_subdirs', False)
     if use_subdirs:
         filename = os.path.join(file_rootdir, *(strquote(item) for item in os.path.split(title)))
