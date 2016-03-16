@@ -69,10 +69,18 @@ Solved issues:
 2015-Jul-28:
 "The database schema for Chrome cookies has recently been changed to utilize partial indexes,
 which are supported on SQLite 3.8.0 and higher (https://www.sqlite.org/partialindex.html)."
+This causes the following error: sqlite3.DatabaseError: malformed database schema (is_transient) - near "where" (...)
 http://stackoverflow.com/questions/31652864/sqlite3-error-malformed-database-schema-is-transient-near-where-syntax-e
 The current library version (shipped with python 3.3.5) is:
     sqlite3 sqlite version: 3.7.12
-
+There is a newer version of sqlite3 included with python 3.4
+(sqlite 3.8.3.1 for python 3.4.0 of 2014-03 and 3.8.11 3.4.4 of 2015-Dec)
+Unfortunately, there have been no updated releases for python3.3 used by Sublime Text 3,
+so I haven't succeed in transplanting a newer version of sqlite3 into this library,
+leaving the "auto cookie extract" feature currently broken.
+Update 2016/03/16: I fixed the problem for OS X by using a _sqlite3.so file from Anaconda.
+See the HOWTO.txt file for info.
+I did the same on Windows (64bit). Anaconda only had sqlite 3.9 (not 3.8) but it might still be good enough..
 
 """
 

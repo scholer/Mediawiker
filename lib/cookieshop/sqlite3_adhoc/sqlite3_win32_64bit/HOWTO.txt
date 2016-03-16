@@ -1,0 +1,13 @@
+conda create -n py33 python=3.3 sqlite=3.9   # or sqlite=3.8 if available
+mkdir sqlite3_win32_64bit
+cd sqlite3_win32_64bit
+# Note: Same as old version
+cp ~/Anaconda3/envs/DLLs/sqlite3.dll ./  
+cp ~/Anaconda3/envs/libs/_sqlite3.lib ./  
+cp ~/Anaconda3/envs/Lib/sqlite3/*.py ./  
+subl __init__.py 
+# Change "from sqlite3.dbapi import *" to "from .dbapi import *"   (local relative import)
+subl dbapi2.py 
+# Change "from _sqlite3 import *" to "from ._sqlite3 import *"   (local relative import)
+
+# Move ./ to this library folder.

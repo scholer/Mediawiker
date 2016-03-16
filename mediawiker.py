@@ -1528,7 +1528,7 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
     Image links are printed to the current view. The output can be customized by two means:
     globally, using the mediawiker_insert_image_options settings key (value should be a dict), or
     per-view, by marking the first line in the view with '#' followed by an info dict in json format, e.g.
-        # {"options": "frameless|center|500px", caption="RS123 TEM Images", "link_fmt": "[[Has image::File:%(destname)s|%(options)s|%(caption)s]]"}
+        # {"options": "frameless|center|500px", "caption": "RS123 TEM Images", "link_fmt": "[[Has image::File:%(destname)s|%(options)s|%(caption)s]]"}
     (remember, JSON format requires double quotes ("key", not 'key') when loading from strings)
     Note: I used to also have , "imageformat": "frameless", "imagesize": "500px", but these are now deprechated in
     favor of a single combined "options" as used above.
