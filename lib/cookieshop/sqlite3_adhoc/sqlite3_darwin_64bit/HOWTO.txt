@@ -1,0 +1,13 @@
+## How this module was created for OS X:
+mkdir ~/sqlite_darwin_anaconda
+conda install -n sqlite38 python=3.3 sqlite=3.8
+cd ~/anaconda3/envs/sqlite38/lib
+cp python3.3/lib-dynload/_sqlite3.so ~/sqlite_darwin_anaconda/
+cp python3.3/sqlite3/*.py ~/sqlite_darwin_anaconda/
+subl ~/sqlite_darwin_anaconda/__init__.py
+# Change line from "from sqlite3.dbapi2 import *" to just "from .dbapi2 import *" (local relative import)
+subl ~/sqlite_darwin_anaconda/dbapi2.py
+# Change line from "from _sqlite3 import *" to "from ._sqlite3 import *" (local relative import)
+
+# Move ~/sqlite_darwin_anaconda to this library.
+# Note: There are a bunch of "libsqlite3.*" files in lib/ but they don't seem to be important...

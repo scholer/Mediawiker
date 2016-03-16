@@ -1,8 +1,9 @@
-#python
+﻿#python
 *.pyc
 .projectfiles/*
 *.orig
 lib/*/old/*
 *.komodoproject
+.DS_Store
 patches/
 pylintrc

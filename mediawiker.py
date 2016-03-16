@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 # pylint: disable=W0142,C0302,C0301,C0103,C0111,W0221
@@ -383,6 +383,7 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
             return
 
         ## 1. Make experiment folder, if appropriate: ##
+        foldername = folderpath = None
         if exp_basedir and foldername_fmt:
             if os.path.isdir(exp_basedir):
                 foldername = foldername_fmt.format(expid=self.expid, exp_titledesc=self.exp_titledesc)
@@ -397,7 +398,6 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
             else:
                 # We are not creating a new folder for the experiment because basedir doesn't exists:
                 msg = "Specified experiment base dir does not exists: %s" % (exp_basedir,)
-                foldername = folderpath = None
             print(msg)
             sublime.status_message(msg)
 
