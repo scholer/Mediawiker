@@ -7,3 +7,4 @@ lib/*/old/*
 .DS_Store
 patches/
 pylintrc
+.idea/
