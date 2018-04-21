@@ -37,6 +37,9 @@ import re
 from datetime import date
 from functools import partial
 import difflib
+import logging
+import time
+logger = logging.getLogger(__name__)
 import sublime
 import sublime_plugin
 
@@ -335,12 +338,13 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
 
     def expid_received(self, expid):
         """ Saves expid input and asks the user for titledesc. """
+        expid = expid.strip() # strip leading/trailing whitespace
         self.expid = expid # empty string is OK.
         self.window.show_input_panel('Exp title desc:', '', self.exp_title_received, None, None)
 
     def exp_title_received(self, exp_titledesc):
         """ Saves titledesc input and asks the user for bigcomment text. """
-        self.exp_titledesc = exp_titledesc # empty string is OK.
+        self.exp_titledesc = exp_titledesc.strip() # strip leading/trailing whitespace; empty string is OK.
         self.window.show_input_panel('Big page comment:', self.expid, self.bigcomment_received, None, None)
 
     def bigcomment_received(self, bigcomment):
@@ -363,6 +367,8 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
             exp_basedir = os.path.expanduser(exp_basedir)
         # Experiments overview page: A file/page that lists (and links) to all experiments.
         experiments_overview_page = mw.get_setting('mediawiker_experiments_overview_page')
+        if experiments_overview_page and experiments_overview_page[0] == '~':
+            experiments_overview_page = os.path.expanduser(experiments_overview_page)
         # title format, e.g. "MyExperiments/{expid} {exp_titledesc}". If not set, no new buffer is created.
         title_fmt = mw.get_setting('mediawiker_experiments_title_fmt')
         template = mw.get_setting('mediawiker_experiments_template')
@@ -391,7 +397,8 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
         if exp_basedir and foldername_fmt:
             if os.path.isdir(exp_basedir):
                 foldername = foldername_fmt.format(expid=self.expid, exp_titledesc=self.exp_titledesc)
-                folderpath = os.path.join(exp_basedir, foldername)
+                folderpath = os.path.join(exp_basedir, foldername).strip()
+                assert folderpath
                 try:
                     os.mkdir(folderpath)
                     msg = "Created new experiment directory: %s" % (folderpath,)
@@ -411,18 +418,25 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
             self.view = exp_view = sublime.active_window().new_file() # Make a new file/buffer/view
             self.window.focus_view(exp_view) # exp_view is now the window's active_view
             filename = mw.strquote(self.pagetitle)
+
+            print("Setting new view filename to '%s'" % (filename,))
+            exp_view.set_name(filename)
+
             view_default_dir = folderpath if save_page_in_exp_folder and folderpath \
                                           else mw.get_setting('mediawiker_file_rootdir')
             if view_default_dir:
                 view_default_dir = os.path.expanduser(view_default_dir)
-                print("Setting view's default dir to:", view_default_dir)
+                print("Setting view's default dir to: '%s'" % (view_default_dir,))
                 exp_view.settings().set('default_dir', view_default_dir) # Update the view's working dir.
-            exp_view.set_name(filename)
-            # Manually set the syntax file to use (since the view does not have a file extension)
-            self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
+            else:
+                print("No default directory for new experiments defined in settings.")
         else:
             # We are not creating a new view, use the active view:
+            print("mediawiker_experiments_title_fmt option not defined; cannot create new experiment filename.")
             self.view = exp_view = self.window.active_view()
+
+        # Manually set the syntax file to use (since the view does not have a file extension)
+        self.view.set_syntax_file('Packages/Mediawiker/Mediawiki.tmLanguage')
 
         ## 3. Create big comment text: ##
         if self.bigcomment:
@@ -468,7 +482,6 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
         else:
             print('No template specified (settings key "mediawiker_experiments_template").')
 
-
         ## 6. Append self.exp_buffer_text to the view: ##
         exp_view.run_command('mediawiker_insert_text', {'position': exp_view.size(), 'text': self.exp_buffer_text})
 
@@ -483,12 +496,14 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
                 link = "{}#{}".format(mw.get_title(), foldername.replace(' ', '_'))
                 link_text = link_fmt.format(link)
 
+            print('Adding link "%s" to experiment overview page: %s' % (link_text, experiments_overview_page))
+
             # Insert link on experiments_overview_page. Currently, this must be a local file.
             # (We just edit the file on disk and let ST pick up the change if the file is opened in any view.)
-            if os.path.isfile(experiments_overview_page):
+            if os.path.isfile(os.path.expanduser(experiments_overview_page)):
                 print("Adding link '%s' to file '%s'" % (link_text, experiments_overview_page))
                 # We have a local file, append link:
-                with open(experiments_overview_page, 'a') as fd:
+                with open(os.path.expanduser(experiments_overview_page), 'a') as fd:
                     # In python3, there is a bigger difference between binary 'b' mode and normal (text) mode.
                     # Do not open in binary 'b' mode when writing/appending strings. It is not supported in python 3.
                     # If you want to write strings to files opened in binary mode, you have to cast the string to bytes / encode it:
@@ -499,13 +514,21 @@ class MediawikerNewExperimentCommand(sublime_plugin.WindowCommand):
                 # User probably specified a page on the wiki. (This is not yet supported.)
                 # Even if this is a page on the wiki, you should check whether that page is already opened in Sublime.
                 ## TODO: Implement specifying experiments_overview_page from server.
+                print("Experiment page %s is not a local file; ")
                 print("Using experiment_overview_page from the server is not yet supported.")
 
-        print("MediawikerNewExperimentCommand completed!\n")
+        # 8. Finishing touches...
+        print("mediawiker_experiments_save_to_file is", save_to_file)
         if save_to_file:
+            print(" - saving new experiment file...")
             self.window.run_command("save")
+        print("mediawiker_experiments_enable_autosave is", enable_autosave)
         if enable_autosave:
+            print(" - enabling autosave...")
             self.window.run_command("auto_save", args={"enable": True})
+
+        print("MediawikerNewExperimentCommand completed!\n")
+
 
 
 class MediawikerSetLoginCookie(sublime_plugin.WindowCommand):
@@ -589,6 +612,37 @@ class MediawikerSavePageCommand(sublime_plugin.WindowCommand):
             pass
         if 'publish' in on_save_action:
             self.window.run_command("mediawiker_page", {"action": "mediawiker_publish_page"})
+
+
+
+def diff_file_vs_server(filepath, siteconn):
+    """
+    Compare the contents of a journal file on disk with a mediawiki page on the server. 
+    """
+    with open(filepath) as fp:
+        filecontent = fp.read()
+
+    _, pagetext = mw.get_page_text(sitecon, title)
+    print("server page text len: ", len(text))
+    if not text:
+        # Uh, well, what if it does exist, but it is empty?
+        msg = 'Wiki page %s does not exists.' % (title,)
+        sublime.status_message(msg)
+        diff_text = '<!-- %s -->' % msg
+    else:
+        new_lines = [l+"\n" for l in filecontent.split("\n")]
+        old_lines = [l+"\n" for l in pagetext.split("\n")]
+        print("new vs old number of lines: %s vs %s" % (len(new_lines), len(old_lines)))
+        diff_lines = difflib.unified_diff(old_lines, new_lines, fromfile="Server revision", tofile="Buffer view")
+        diff_text = "".join(diff_lines)
+        print("len diff_text: %s" % (len(diff_text), ))
+        if not diff_text:
+            print("Diff text: ", diff_text)
+            diff_text = "<<< No change between files... >>>"
+        else:
+            diff_view.set_syntax_file("Packages/Diff/Diff.tmLanguage")
+    diff_view.run_command('mediawiker_insert_text', {'text': diff_text})
+
 
 
 
@@ -1513,7 +1567,8 @@ class MediawikerUploadCommand(sublime_plugin.TextCommand):
             # This might happen in predata['token'] = image.get_token('edit'), if e.g. title is invalid.
             sublime.message_dialog('Upload error, invalid destination file name/title:\n %s' % e)
             return
-        link_text = '[[File:%(destname)s]]' % {'destname': self.file_destname}
+        file_link_fmt = mw.get_setting('mediawiker_file_link_fmt', '[[File:%(destname)s]]')
+        link_text = file_link_fmt % {'destname': self.file_destname}
         self.view.run_command('mediawiker_insert_text', {'position': None, 'text': link_text})
 
 
@@ -1533,7 +1588,7 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
     Image links are printed to the current view. The output can be customized by two means:
     globally, using the mediawiker_insert_image_options settings key (value should be a dict), or
     per-view, by marking the first line in the view with '#' followed by an info dict in json format, e.g.
-        # {"options": "frameless|center|500px", "caption": "RS123 TEM Images", "link_fmt": "[[Has image::File:%(destname)s|%(options)s|%(caption)s]]"}
+    # {"options": "frameless|center|500px", "caption": "TEM Images", "link_fmt": "[[Has_image::File:%(destname)s|%(options)s|%(caption)s]]"}
     (remember, JSON format requires double quotes ("key", not 'key') when loading from strings)
     Note: I used to also have , "imageformat": "frameless", "imagesize": "500px", but these are now deprechated in
     favor of a single combined "options" as used above.
@@ -1541,6 +1596,14 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
     should both specify a dict with one or more of the following items:
         "link_fmt" : controls the overall link format.
         "options" and "caption" are both inserted by string interpolation with link_fmt.
+
+    OBS: You may also want to consider the 'gallery' tag: (https://www.mediawiki.org/wiki/Help:Images)
+    <gallery mode="packed-hover">
+    File:file_name.ext|caption|alt=alt language
+    File:file_name.ext|caption|alt=alt language
+    {...}
+    </gallery>
+
 
     Bonus tip:  On Windows, use ShellTools' (or equivalent) "copy path" context menu
                 entry to easily get the path of multiple files from Explorer.
@@ -1596,19 +1659,21 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
         self.edit = edit
         self.text = self.view.substr(sublime.Region(0, self.view.size()))
         if not self.text.strip():
-            ## A blank buffer means that the user probably wants help. print help and return.
+            # A blank buffer means that the user probably wants help. print help and return.
             self.print_help()
             return
 
         self.files, view_image_link_options = self.parseUploadBatchText(self.text)
         # Not sure how to handle this in case of macros/repeats...
 
-        #sitecon = mw.get_connect(self.password)
+        # sitecon = mw.get_connect(self.password)
         # dict used to change how images are inserted.
-        image_link_options = {'caption': '', 'options': '', 'filedescription_as_caption': False,
-                              'image_extensions': '.jpg,.jpeg,.bpm,.png,.gif,.svg,.tif,.tiff',
-                              'link_fmt': '\n[[File:%(destname)s|%(options)s|%(caption)s]]\n',
-                              'file_link_fmt': '[[File:%(destname)s]]'}
+        image_link_options = {
+            'caption': '', 'options': '', 'filedescription_as_caption': False,
+            'image_extensions': '.jpg,.jpeg,.bpm,.png,.gif,.svg,.tif,.tiff',
+            # 'link_fmt': '\n[[File:%(destname)s|%(options)s|%(caption)s]]\n',
+            'link_fmt': mw.get_setting('mediawiker_file_link_fmt', '[[File:%(destname)s|%(options)s|%(caption)s]]\n'),
+            'file_link_fmt': '[[File:%(destname)s]]'}
         image_link_options.update(mw.get_setting('mediawiker_insert_image_options', {}))
         # Update with options from first line of view:
         if view_image_link_options:
@@ -1640,6 +1705,8 @@ class MediawikerUploadBatchViewCommand(sublime_plugin.TextCommand):
             print("Queued %s for upload" % os.path.basename(filepath))
             # In Sublime Text 3, set_timeout_async is thread safe, so using cached sitemgr shouldn't be an issue.
             sublime.set_timeout_async(partial(self.uploadafile, filepath, destname, filedesc, link_fmt, file_image_link_options), 0)
+            # Sleep, to space out uploads a bit:
+            time.sleep(0.2)
 
 
     def uploadafile(self, filepath, destname, filedesc, link_fmt, file_image_link_options): #**kwargs):
